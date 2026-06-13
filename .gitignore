@@ -1,0 +1,15 @@
+# Virtual environment
+.venv/
+
+# Secrets & cached OAuth tokens — never commit these
+.env
+credentials.json
+gmail_token.json
+ms_token_cache.json
+
+# Generated output
+next_lesson_plan.md
+
+# Python caches
+__pycache__/
+*.pyc

@@ -1,0 +1,16 @@
+# Gemini API (current SDK: `from google import genai`)
+google-genai
+
+# Gmail API
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+
+# Microsoft Graph / OneNote
+msal
+requests
+
+# Helpers
+beautifulsoup4   # strip OneNote page HTML -> text for Gemini
+markdown         # convert generated Markdown lesson plan -> HTML for OneNote
