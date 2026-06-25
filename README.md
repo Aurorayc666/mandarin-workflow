@@ -1,34 +1,40 @@
 # Mandarin Class Workflow
 
-Reads your past Mandarin lesson plans from **OneNote**, uses the **Gemini API** to
-generate a lesson plan for the next class and a recap email, then:
+Three scripts that together manage a Mandarin Chinese class — from preparing
+each lesson to wrapping up a semester and planning the next one.
 
-- saves the new lesson plan back into **OneNote** (and a local `next_lesson_plan.md`), and
-- creates the recap as a draft in your **Gmail**.
+| Script | When to run | What it does |
+|--------|-------------|--------------|
+| `manage_class.py` | Before each class | Reads all past OneNote plans → Gemini → new lesson plan + Gmail recap draft |
+| `manage_class_v2.py` | End of semester | Reads all class plans → Gemini → vocab table, sentence table, grammar summary, homework packet |
+| `manage_class_v3.py` | Planning next semester | Reads Spring plans → Gemini → Summer syllabus (8 classes, one level up) + 8 individual class plans |
 
-Voice-recording digestion is planned for a future version.
+All three scripts share the same OneNote notebook (`Mandarin_Class`), the same
+Gemini model (`gemini-2.5-flash`), and the same cached Microsoft auth token.
 
-## How it works
+---
 
-`manage_class.py`:
+## OneNote structure
 
-1. Authenticates to Microsoft Graph (browser opens once; token cached in
-   `ms_token_cache.json`).
-2. Reads every page in the `NOTEBOOK_NAME` notebook (all sections).
-3. Asks Gemini (`gemini-2.5-flash`) for a Markdown lesson plan + an HTML recap.
-4. Writes the plan to `next_lesson_plan.md` and to a new OneNote page in the
-   section of your most recently edited plan.
-5. Authenticates to Gmail (browser opens once; token cached in `gmail_token.json`)
-   and creates the recap draft.
+```
+Mandarin_Class (notebook)
+├── Spring 2026 Class Plans   ← source for all three scripts
+├── Spring 2026 Handouts      ← created by manage_class_v2.py
+└── Summer 2026               ← created by manage_class_v3.py
+```
+
+**Before running V2 or V3:** rename your existing class-plan section to
+`Spring 2026 Class Plans` in OneNote. You can override the name via the
+`SPRING_SECTION` environment variable if you prefer a different name.
+
+---
 
 ## Setup
 
 ### 1. Python environment
 
-A virtual environment lives in `.venv`. To recreate it:
-
 ```powershell
-# Use any Python 3.10+ (this project was set up with the Anaconda interpreter):
+# Python 3.10+ required (Anaconda interpreter used here):
 & "$env:USERPROFILE\anaconda3\python.exe" -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -36,81 +42,170 @@ pip install -r requirements.txt
 
 ### 2. Gemini API key
 
-1. Get a key at <https://aistudio.google.com/apikey>.
-2. Set it: `$env:GEMINI_API_KEY = "AQ.Ab8RN6IrjmvmFkWf902GOTcJxc0vzlfdKwwFSoGcM98NbsJjyQ"` (or `setx GEMINI_API_KEY "your-key"`
-   to persist across terminals).
+Get a key at <https://aistudio.google.com/apikey>, then:
+
+```powershell
+$env:GEMINI_API_KEY = "your-key-here"
+# or persist across terminals:
+setx GEMINI_API_KEY "your-key-here"
+```
 
 ### 3. Microsoft Azure app registration (OneNote)
 
 At <https://entra.microsoft.com> → **App registrations** → **New registration**:
 
 1. **Supported account types:** *Accounts in any organizational directory and
-   personal Microsoft accounts* (matches the `/common` authority used in the script).
+   personal Microsoft accounts*.
 2. **Authentication** → **Add a platform** → **Mobile and desktop applications** →
    redirect URI **`http://localhost`**.
-3. **Authentication** → **Advanced settings** → **Allow public client flows** =
-   **Yes**.
-4. Copy the **Application (client) ID** and set it: `$env:MS_CLIENT_ID = "faab42e9-c5f1-4b9f-8a9a-582c61f74fa4"`.
+3. **Authentication** → **Advanced settings** → **Allow public client flows** = **Yes**.
+4. Copy the **Application (client) ID**:
+   ```powershell
+   $env:MS_CLIENT_ID = "your-client-id-here"
+   ```
 
-No client secret is needed — this is a public (desktop) client. App-only auth is
-retired for OneNote, so the script signs you in interactively (delegated).
+No client secret needed — this is a public (desktop) client.
 
-### 4. Gmail OAuth client
+### 4. Gmail OAuth client (V1 only)
 
 At <https://console.cloud.google.com/>:
 
 1. Create/select a project; **enable the Gmail API**.
 2. Configure the **OAuth consent screen** (External; add your Gmail as a test user).
-3. **Credentials** → **Create Credentials** → **OAuth client ID** →
-   application type **Desktop app**.
-4. Download the JSON and save it as **`credentials.json`** next to `manage_class.py`.
+3. **Credentials** → **Create Credentials** → **OAuth client ID** → **Desktop app**.
+4. Download the JSON and save as **`credentials.json`** next to `manage_class.py`.
 
-### 5. Recipient + notebook
+V2 and V3 do not use Gmail — only Microsoft Graph + Gemini.
 
-- `$env:RECAP_TO = "student@example.com"` — who the recap draft is addressed to (visible To field).
-- `$env:RECAP_BCC = "a@example.com, b@example.com"` — optional comma-separated BCC recipients.
-- `$env:NOTEBOOK_NAME = "Mandarin"` — the OneNote notebook to read (defaults to
-  `Mandarin_Class`; you can also edit the default in `manage_class.py`).
+### 5. Environment variables
 
-See `.env.example` for the full list of variables.
+```powershell
+$env:RECAP_TO      = "student@example.com"   # V1: recap draft recipient
+$env:RECAP_BCC     = "a@b.com, c@d.com"      # V1: optional BCC
+$env:NOTEBOOK_NAME = "Mandarin_Class"        # all scripts (default shown)
+$env:SPRING_SECTION = "Spring 2026 Class Plans"  # V2+V3 (default shown)
+```
 
-## Run
+See `.env.example` for the full list.
+
+---
+
+## V1 — Lesson plan + recap (`manage_class.py`)
+
+Run before each class session.
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python manage_class.py
 ```
 
-On the first run, two browser windows open (Microsoft, then Google) for consent.
-After that, the cached tokens are reused.
+**What happens:**
+1. Reads every page in `Mandarin_Class` (all sections) via Microsoft Graph.
+2. Asks Gemini for a Markdown lesson plan for the next class.
+3. Shows you the draft in the terminal — press Enter to approve or type feedback
+   to regenerate.
+4. Saves the approved plan to `next_lesson_plan.md` and a new OneNote page.
+5. Generates an HTML recap email and saves it as a Gmail draft.
 
-You review and refine the lesson plan in the terminal before anything is saved;
-only after you approve it does the script save to OneNote and draft the recap.
+On the first run two browser windows open (Microsoft, then Google) for OAuth
+consent. Tokens are cached so later runs are silent.
 
-### Unattended runs
+**Flags:**
 
-`python manage_class.py --auto` skips the review loop and accepts the first
-lesson plan — intended for fully automatic / scheduled runs (the recap is only
-ever a draft, never sent automatically).
+```powershell
+python manage_class.py --auto   # skip review; accept first draft (for scheduled runs)
+```
+
+---
+
+## V2 — End-of-semester handouts (`manage_class_v2.py`)
+
+Run once at the end of a semester to produce student-facing reference materials.
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python manage_class_v2.py
+```
+
+**What happens:**
+1. Reads all pages from the `Spring 2026 Class Plans` section (ascending order,
+   Class 1 → Class N, so Gemini sees the curriculum in sequence).
+2. Calls Gemini four times to generate:
+   - **Vocabulary table** — every word introduced, sorted by Pinyin (Hanzi | Pinyin | English)
+   - **Sentence table** — all key sentences grouped by class
+   - **Grammar summary** — one section per grammar point with examples
+   - **Homework packet** — character writing list, fill-in-the-blank, EN→ZH translation, composition prompt
+3. Saves each document locally (`.md`) and as a OneNote page in a new
+   `Spring 2026 Handouts` section (created automatically if needed).
+
+No interactive review — V2 outputs are reference materials, not lesson plans.
+
+**Local output files:**
+
+| File | Content |
+|------|---------|
+| `vocab_table.md` | Vocabulary table |
+| `sentence_table.md` | Sentence table |
+| `grammar_summary.md` | Grammar summary |
+| `homework.md` | Homework packet |
+
+---
+
+## V3 — Next-semester planning (`manage_class_v3.py`)
+
+Run once when planning a new semester, after completing V2.
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python manage_class_v3.py
+```
+
+**What happens:**
+1. Reads all pages from `Spring 2026 Class Plans`.
+2. Generates a Summer 2026 syllabus — 8 classes, one level above Spring 2026
+   (approximately HSK 2 / intermediate), building directly on what was taught.
+3. Shows the syllabus in the terminal — approve or give feedback to refine.
+4. Creates a `Summer 2026` section in OneNote and saves the syllabus as the first page.
+5. Generates 8 individual class plans (one Gemini call each) and saves each
+   locally and as a OneNote page.
+
+**Flags:**
+
+```powershell
+python manage_class_v3.py --auto   # accept first syllabus draft, then generate all 8 plans unattended
+```
+
+**Local output files:**
+
+| File | Content |
+|------|---------|
+| `summer_2026_syllabus.md` | Approved Summer 2026 syllabus |
+| `summer_2026_class_01.md` … `_08.md` | Individual Summer class plans |
+
+---
 
 ## Using your custom Gemini "Gem"
 
-Gems live in the Gemini app and **cannot be called through the Gemini API**. To get
-equivalent behavior, copy your Mandarin Gem's instructions into a file named
-`gem_instructions.txt` next to `manage_class.py`. If that file exists, its
-contents are sent as the system instruction on every Gemini call. (If your Gem
-relies on uploaded knowledge files, those aren't included — only the instruction
-text.)
+Gems **cannot be called through the Gemini API**. To replicate your Gem's behavior,
+copy its system instructions into `gem_instructions.txt` next to the scripts. All
+three scripts will pick it up automatically on every Gemini call.
+
+---
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `manage_class.py` | Main script |
-| `requirements.txt` | Dependencies |
-| `.env.example` | Required environment variables |
-| `next_lesson_plan.md` | Generated lesson plan (local copy) |
+| `manage_class.py` | V1 — per-class lesson plan + recap |
+| `manage_class_v2.py` | V2 — end-of-semester student handouts |
+| `manage_class_v3.py` | V3 — next-semester syllabus + class plans |
+| `requirements.txt` | Python dependencies |
+| `.env.example` | All environment variables with descriptions |
+| `next_lesson_plan.md` | V1 generated output (git-ignored) |
+| `vocab_table.md` / `sentence_table.md` / `grammar_summary.md` / `homework.md` | V2 generated outputs (git-ignored) |
+| `summer_2026_syllabus.md` / `summer_2026_class_*.md` | V3 generated outputs (git-ignored) |
 | `credentials.json` | Gmail OAuth client (you provide; git-ignored) |
-| `gmail_token.json` / `ms_token_cache.json` | Cached tokens (auto-created; git-ignored) |
+| `gmail_token.json` / `ms_token_cache.json` | Cached auth tokens (auto-created; git-ignored) |
+| `gem_instructions.txt` | Optional Gemini system instructions (git-ignored) |
 
 Secrets and tokens are listed in `.gitignore` and must never be committed.
