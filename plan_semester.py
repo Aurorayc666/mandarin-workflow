@@ -1,4 +1,4 @@
-"""Mandarin class V3: plan the Summer 2026 semester.
+"""plan_semester.py — plan the Summer 2026 semester.
 
 Reads all Spring 2026 lesson plans from OneNote, generates an 8-class Summer
 2026 syllabus (one level above Spring — intermediate/HSK-2), lets the teacher
@@ -8,8 +8,8 @@ All output is saved locally as .md files and as OneNote pages in a new
 "Summer 2026" section (created if needed).
 
 Run:
-  python manage_class_v3.py           # interactive syllabus review
-  python manage_class_v3.py --auto    # accept first syllabus draft automatically
+  python plan_semester.py           # interactive syllabus review
+  python plan_semester.py --auto    # accept first syllabus draft automatically
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import sys
 
 import markdown
 

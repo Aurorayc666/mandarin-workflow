@@ -6,8 +6,8 @@ each lesson to wrapping up a semester and planning the next one.
 | Script | When to run | What it does |
 |--------|-------------|--------------|
 | `manage_class.py` | Before each class | Reads all past OneNote plans → Gemini → new lesson plan + Gmail recap draft |
-| `manage_class_v2.py` | End of semester | Reads all class plans → Gemini → vocab table, sentence table, grammar summary, homework packet |
-| `manage_class_v3.py` | Planning next semester | Reads Spring plans → Gemini → Summer syllabus (8 classes, one level up) + 8 individual class plans |
+| `generate_handouts.py` | End of semester | Reads all class plans → Gemini → vocab table, sentence table, grammar summary, homework packet |
+| `plan_semester.py` | Planning next semester | Reads Spring plans → Gemini → Summer syllabus (8 classes, one level up) + 8 individual class plans |
 
 All three scripts share the same OneNote notebook (`Mandarin_Class`), the same
 Gemini model (`gemini-2.5-flash`), and the same cached Microsoft auth token.
@@ -118,13 +118,13 @@ python manage_class.py --auto   # skip review; accept first draft (for scheduled
 
 ---
 
-## V2 — End-of-semester handouts (`manage_class_v2.py`)
+## V2 — End-of-semester handouts (`generate_handouts.py`)
 
 Run once at the end of a semester to produce student-facing reference materials.
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python manage_class_v2.py
+python generate_handouts.py
 ```
 
 **What happens:**
@@ -151,13 +151,13 @@ No interactive review — V2 outputs are reference materials, not lesson plans.
 
 ---
 
-## V3 — Next-semester planning (`manage_class_v3.py`)
+## V3 — Next-semester planning (`plan_semester.py`)
 
 Run once when planning a new semester, after completing V2.
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python manage_class_v3.py
+python plan_semester.py
 ```
 
 **What happens:**
@@ -172,7 +172,7 @@ python manage_class_v3.py
 **Flags:**
 
 ```powershell
-python manage_class_v3.py --auto   # accept first syllabus draft, then generate all 8 plans unattended
+python plan_semester.py --auto   # accept first syllabus draft, then generate all 8 plans unattended
 ```
 
 **Local output files:**
@@ -197,8 +197,8 @@ three scripts will pick it up automatically on every Gemini call.
 | File | Purpose |
 |------|---------|
 | `manage_class.py` | V1 — per-class lesson plan + recap |
-| `manage_class_v2.py` | V2 — end-of-semester student handouts |
-| `manage_class_v3.py` | V3 — next-semester syllabus + class plans |
+| `generate_handouts.py` | V2 — end-of-semester student handouts |
+| `plan_semester.py` | V3 — next-semester syllabus + class plans |
 | `requirements.txt` | Python dependencies |
 | `.env.example` | All environment variables with descriptions |
 | `next_lesson_plan.md` | V1 generated output (git-ignored) |

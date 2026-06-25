@@ -1,4 +1,4 @@
-"""Mandarin class V2: generate end-of-semester student handout materials.
+"""generate_handouts.py — end-of-semester student handout materials.
 
 Reads all past lesson plans from the Spring 2026 OneNote section, then uses
 Gemini to produce four student-facing documents:
@@ -11,13 +11,12 @@ Gemini to produce four student-facing documents:
 Each document is saved as a local .md file and as a page in a
 "Spring 2026 Handouts" OneNote section (created if needed).
 
-Run: python manage_class_v2.py
+Run: python generate_handouts.py
 """
 
 from __future__ import annotations
 
 import os
-import sys
 
 import markdown
 
