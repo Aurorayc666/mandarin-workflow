@@ -102,23 +102,6 @@ contents are sent as the system instruction on every Gemini call. (If your Gem
 relies on uploaded knowledge files, those aren't included — only the instruction
 text.)
 
-## Weekly reminder (Tuesday mornings)
-
-A Windows Scheduled Task named **`MandarinClassRecap`** runs every **Tuesday at
-8:00 AM** and shows a reminder dialog (`remind.ps1`). Click **Yes** and it opens a
-terminal in this folder with the venv activated, ready for you to run
-`python manage_class.py` (so you still get the interactive review).
-
-- For the new terminal to see your keys, set them persistently once:
-  `setx GEMINI_API_KEY "..."`, `setx MS_CLIENT_ID "..."`, `setx RECAP_TO "..."`
-  (then open a new terminal).
-- Change the time/day: Task Scheduler → `MandarinClassRecap`, or re-run the
-  `Register-ScheduledTask` command with a different `-At` / `-DaysOfWeek`.
-- Remove it: `Unregister-ScheduledTask -TaskName MandarinClassRecap -Confirm:$false`.
-- Switch to fully automatic later (Option A): change the task action's argument to
-  call `manage_class.py --auto` directly with the venv Python instead of showing
-  the reminder.
-
 ## Files
 
 | File | Purpose |
