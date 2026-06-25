@@ -244,6 +244,69 @@ def create_onenote_page(token: str, section_id: str, title: str, html_body: str)
     print(f"Created OneNote page: {url}")
 
 
+def read_section_pages(token: str, notebook_id: str, section_name: str) -> tuple[str, str]:
+    """Read all pages from a single named section, sorted ascending by modification time.
+
+    Returns ``(concatenated_text, section_id)``. Exits if the section is not found.
+    """
+    sections = graph_get(
+        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections?$select=id,displayName",
+        token,
+    ).get("value", [])
+    section = next((s for s in sections if s["displayName"] == section_name), None)
+    if not section:
+        available = ", ".join(s.get("displayName", "?") for s in sections)
+        sys.exit(
+            f"ERROR: section {section_name!r} not found. "
+            f"Available: {available or '(none)'}. "
+            "Set SPRING_SECTION to match, or rename the section in OneNote."
+        )
+    section_id = section["id"]
+
+    pages: list[dict] = []
+    url = (
+        f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages"
+        "?$select=id,title,lastModifiedDateTime&$top=100"
+    )
+    while url:
+        data = graph_get(url, token)
+        pages.extend(data.get("value", []))
+        url = data.get("@odata.nextLink")
+
+    pages.sort(key=lambda p: p.get("lastModifiedDateTime", ""))  # ascending: Class 1 → N
+    print(f"Reading {len(pages)} page(s) from section {section_name!r}...")
+    chunks: list[str] = []
+    for page in pages:
+        title = page.get("title") or "(untitled)"
+        text = _page_text(token, page["id"])
+        chunks.append(f"# {title}\n{text}")
+    return "\n\n---\n\n".join(chunks), section_id
+
+
+def find_or_create_section(token: str, notebook_id: str, name: str) -> str:
+    """Return the id of a named section, creating it if it doesn't exist."""
+    sections = graph_get(
+        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections?$select=id,displayName",
+        token,
+    ).get("value", [])
+    for s in sections:
+        if s["displayName"] == name:
+            return s["id"]
+    print(f"Creating section {name!r}...")
+    resp = _graph_request(
+        "POST",
+        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections",
+        token,
+        headers={"Content-Type": "application/json"},
+        json={"displayName": name},
+    )
+    if resp.status_code not in (200, 201):
+        sys.exit(
+            f"ERROR: failed to create section {name!r} ({resp.status_code}): {resp.text}"
+        )
+    return resp.json()["id"]
+
+
 # --------------------------------------------------------------------------- #
 # Gemini
 # --------------------------------------------------------------------------- #
