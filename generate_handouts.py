@@ -20,7 +20,7 @@ import os
 
 import markdown
 
-from manage_class import (
+from utils import (
     HERE,
     _generate,
     create_onenote_page,

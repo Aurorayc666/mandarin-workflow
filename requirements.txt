@@ -14,3 +14,4 @@ requests
 # Helpers
 beautifulsoup4   # strip OneNote page HTML -> text for Gemini
 markdown         # convert generated Markdown lesson plan -> HTML for OneNote
+python-dotenv    # load .env file into environment variables

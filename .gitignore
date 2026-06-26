@@ -13,8 +13,8 @@ vocab_table.md
 sentence_table.md
 grammar_summary.md
 homework.md
-summer_2026_syllabus.md
-summer_2026_class_*.md
+*_syllabus.md
+*_class_*.md
 
 # Python caches
 __pycache__/
