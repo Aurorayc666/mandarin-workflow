@@ -43,8 +43,6 @@ from utils import (
 # Target section in OneNote where new class plans are saved.
 LESSON_PLAN_SECTION = os.environ.get("LESSON_PLAN_SECTION", "Summer 2026 Class Plans")
 
-RECAP_SUBJECT = "Mandarin Class Recap"
-
 # Local syllabus file produced by generate_syllabus.py.
 # Update this path when moving to a new semester.
 SYLLABUS_FILE = os.path.join(HERE, "summer_2026_syllabus.md")
@@ -63,6 +61,13 @@ def _extract_plan_topic(plan_md: str) -> str:
             for prefix in ("Lesson Plan:", "Lesson Plan —", "Lesson Plan -", "Lesson Plan –"):
                 if topic.lower().startswith(prefix.lower()):
                     topic = topic[len(prefix):].strip()
+            # Strip leading semester labels like "Summer 2026 " or "Fall 2025 - "
+            topic = re.sub(
+                r"^(spring|summer|fall|winter)\s+\d{4}\s*[-—–]?\s*",
+                "",
+                topic,
+                flags=re.IGNORECASE,
+            ).strip()
             return topic or "Next Class"
     return "Next Class"
 
@@ -162,22 +167,27 @@ def review_lesson_plan(
         )
 
 
-def generate_recap_email(all_notes: str) -> str:
-    """Generate a warm, structured HTML recap email body."""
+def generate_recap_email(all_notes: str, plan_md: str = "") -> str:
+    """Generate a concise, bullet-pointed HTML recap email body."""
     prompt = (
-        "You are an experienced, encouraging Mandarin Chinese teacher writing a "
-        "recap email to your student after class. Using the notes below, identify "
-        "the most recent class and write the BODY of an HTML email that:\n"
-        "- opens with a warm, personal greeting,\n"
-        "- briefly summarizes what was covered in that class,\n"
-        "- includes an HTML <table> of the vocabulary covered with three columns: "
-        "Hanzi, Pinyin, English (use a header row),\n"
-        "- ends with an encouraging closing and a short note on what to practice.\n\n"
-        "Return ONLY the HTML body content (you may use <p>, <h2>, <table>, etc.). "
-        "Do not include <html>, <head>, or <body> tags, and no surrounding code fences.\n\n"
+        "You are a Mandarin Chinese teacher writing a brief recap email to your student "
+        "after class. Using the notes below, identify the most recent class and write "
+        "the BODY of an HTML email with these sections:\n\n"
+        "1. A short, warm greeting (1–2 sentences).\n"
+        "2. <h3>What We Covered</h3> — a concise <ul> bullet list of the main topics.\n"
+        "3. <h3>Vocabulary</h3> — an HTML <table> with columns: Hanzi | Pinyin | English "
+        "(include a header row).\n"
+        "4. <h3>Homework</h3> — a short <ul> bullet list of homework tasks drawn from "
+        "the lesson plan below.\n"
+        "5. A one-sentence encouraging closing.\n\n"
+        "Keep the whole email short and scannable — prefer bullets over paragraphs.\n"
+        "Return ONLY the HTML body content. Do not include <html>, <head>, or <body> "
+        "tags, and no surrounding code fences.\n\n"
         "=== CLASS NOTES ===\n"
         f"{all_notes}"
     )
+    if plan_md:
+        prompt += f"\n\n=== LESSON PLAN (use for homework section) ===\n{plan_md}"
     return _generate(prompt)
 
 
@@ -228,24 +238,32 @@ def main() -> None:
         sent_gmail_text=sent_gmail_text,
         auto=args.auto,
     )
-    class_num  = count_section_pages(token, section_id) + 1
-    topic      = _extract_plan_topic(plan_md)
-    date_str   = datetime.now().strftime("%Y-%m-%d")
-    slug       = re.sub(r"[^\w\s-]", "", topic).strip().replace(" ", "_").lower()
-    lesson_plan_file = os.path.join(HERE, f"class_{class_num}_{slug}_{date_str}.md")
+    topic    = _extract_plan_topic(plan_md)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+
+    # If the model already numbered the class (e.g. "Class 1 - Greetings"), use it
+    # directly; otherwise fall back to the section page count.
+    if re.match(r"^class\s+\d+", topic, re.IGNORECASE):
+        page_title = topic
+    else:
+        class_num  = count_section_pages(token, section_id) + 1
+        page_title = f"Class {class_num} — {topic}"
+
+    slug = re.sub(r"[^\w\s-]", "", page_title).strip().replace(" ", "_").lower()
+    lesson_plan_file = os.path.join(HERE, f"{slug}_{date_str}.md")
 
     with open(lesson_plan_file, "w", encoding="utf-8") as fh:
         fh.write(plan_md)
     print(f"Saved lesson plan to {lesson_plan_file}")
 
-    plan_html  = markdown.markdown(plan_md, extensions=["tables", "fenced_code"])
-    page_title = f"Class {class_num} — {topic}"
+    plan_html = markdown.markdown(plan_md, extensions=["tables", "fenced_code"])
     create_onenote_page(token, section_id, page_title, plan_html)
 
     # 5. Generate recap email and create Gmail draft.
     print("Generating recap email with Gemini...")
-    recap_html = generate_recap_email(all_notes)
-    create_draft(gmail_service, RECAP_TO, RECAP_SUBJECT, recap_html, bcc=RECAP_BCC)
+    recap_html    = generate_recap_email(all_notes, plan_md=plan_md)
+    recap_subject = "Recap " + re.sub(r"\s*[-—–]\s*", ": ", page_title, count=1)
+    create_draft(gmail_service, RECAP_TO, recap_subject, recap_html, bcc=RECAP_BCC)
 
     print("\nDone. Review the new OneNote page and your Gmail draft.")
 
