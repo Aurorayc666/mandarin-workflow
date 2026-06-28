@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
+from datetime import datetime
 
 import markdown
 
@@ -41,8 +43,7 @@ from utils import (
 # Target section in OneNote where new class plans are saved.
 LESSON_PLAN_SECTION = os.environ.get("LESSON_PLAN_SECTION", "Summer 2026 Class Plans")
 
-LESSON_PLAN_FILE = os.path.join(HERE, "next_lesson_plan.md")
-RECAP_SUBJECT    = "Mandarin Class Recap"
+RECAP_SUBJECT = "Mandarin Class Recap"
 
 # Local syllabus file produced by generate_syllabus.py.
 # Update this path when moving to a new semester.
@@ -227,13 +228,18 @@ def main() -> None:
         sent_gmail_text=sent_gmail_text,
         auto=args.auto,
     )
-    with open(LESSON_PLAN_FILE, "w", encoding="utf-8") as fh:
+    class_num  = count_section_pages(token, section_id) + 1
+    topic      = _extract_plan_topic(plan_md)
+    date_str   = datetime.now().strftime("%Y-%m-%d")
+    slug       = re.sub(r"[^\w\s-]", "", topic).strip().replace(" ", "_").lower()
+    lesson_plan_file = os.path.join(HERE, f"class_{class_num}_{slug}_{date_str}.md")
+
+    with open(lesson_plan_file, "w", encoding="utf-8") as fh:
         fh.write(plan_md)
-    print(f"Saved lesson plan to {LESSON_PLAN_FILE}")
+    print(f"Saved lesson plan to {lesson_plan_file}")
 
     plan_html  = markdown.markdown(plan_md, extensions=["tables", "fenced_code"])
-    class_num  = count_section_pages(token, section_id) + 1
-    page_title = f"Class {class_num} — {_extract_plan_topic(plan_md)}"
+    page_title = f"Class {class_num} — {topic}"
     create_onenote_page(token, section_id, page_title, plan_html)
 
     # 5. Generate recap email and create Gmail draft.
