@@ -30,7 +30,7 @@ from googleapiclient.discovery import build
 # Configuration
 # --------------------------------------------------------------------------- #
 
-load_dotenv()
+load_dotenv(override=True)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MS_CLIENT_ID   = os.environ.get("MS_CLIENT_ID")
