@@ -54,21 +54,23 @@ SYLLABUS_FILE = os.path.join(HERE, "summer_2026_syllabus.md")
 
 def _extract_plan_topic(plan_md: str) -> str:
     """Return a short topic string from the first # heading in the lesson plan."""
-    for line in plan_md.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            topic = stripped[2:].strip()
-            for prefix in ("Lesson Plan:", "Lesson Plan —", "Lesson Plan -", "Lesson Plan –"):
-                if topic.lower().startswith(prefix.lower()):
-                    topic = topic[len(prefix):].strip()
-            # Strip leading semester labels like "Summer 2026 " or "Fall 2025 - "
-            topic = re.sub(
-                r"^(spring|summer|fall|winter)\s+\d{4}\s*[-—–]?\s*",
-                "",
-                topic,
-                flags=re.IGNORECASE,
-            ).strip()
-            return topic or "Next Class"
+    for prefix_len, marker in ((2, "# "), (3, "## ")):
+        for line in plan_md.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(marker):
+                topic = stripped[prefix_len:].strip()
+                for lp in ("Lesson Plan:", "Lesson Plan —", "Lesson Plan -", "Lesson Plan –"):
+                    if topic.lower().startswith(lp.lower()):
+                        topic = topic[len(lp):].strip()
+                # Strip leading semester labels like "Summer 2026 " or "Fall 2025 - "
+                topic = re.sub(
+                    r"^(spring|summer|fall|winter)\s+\d{4}\s*[-—–]?\s*",
+                    "",
+                    topic,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if topic:
+                    return topic
     return "Next Class"
 
 
@@ -98,7 +100,9 @@ def generate_lesson_plan(
         "Based on this context, write a lesson plan in **Markdown** for the NEXT class.\n\n"
         "Do not re-teach vocabulary or grammar that already appears in the class plans "
         "below or in the sent recap emails.\n\n"
-        "Structure the plan with these sections:\n"
+        "Begin with a single top-level Markdown heading (# Class N — Topic) that "
+        "states the class number and a short topic name, then structure the plan "
+        "with these sections:\n"
         "1. Learning objectives\n"
         "2. Review of previously covered material\n"
         "3. New vocabulary and grammar (Hanzi | Pinyin | English)\n"
