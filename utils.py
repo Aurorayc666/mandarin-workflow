@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -212,13 +213,15 @@ def find_section(token: str, notebook_id: str, name: str) -> str | None:
     return None
 
 
-def count_section_pages(token: str, section_id: str) -> int:
-    """Return the number of pages currently in a section."""
+def count_class_plan_pages(token: str, section_id: str) -> int:
+    """Count only pages whose title matches 'Class N …' — ignores other pages in the section."""
     count = 0
-    url = f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id&$top=100"
+    url = f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id,title&$top=100"
     while url:
         data = graph_get(url, token)
-        count += len(data.get("value", []))
+        for page in data.get("value", []):
+            if re.match(r"^class\s+\d+", page.get("title") or "", re.IGNORECASE):
+                count += 1
         url = data.get("@odata.nextLink")
     return count
 

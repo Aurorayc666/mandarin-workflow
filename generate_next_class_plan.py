@@ -25,7 +25,7 @@ from utils import (
     RECAP_BCC,
     RECAP_TO,
     _generate,
-    count_section_pages,
+    count_class_plan_pages,
     create_draft,
     create_onenote_page,
     find_notebook,
@@ -250,7 +250,7 @@ def main() -> None:
     if re.match(r"^class\s+\d+", topic, re.IGNORECASE):
         page_title = topic
     else:
-        class_num  = count_section_pages(token, section_id) + 1
+        class_num  = count_class_plan_pages(token, section_id) + 1
         page_title = f"Class {class_num} — {topic}"
 
     slug = re.sub(r"[^\w\s-]", "", page_title).strip().replace(" ", "_").lower()
