@@ -33,7 +33,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MS_CLIENT_ID   = os.environ.get("MS_CLIENT_ID")
-RECAP_TO       = os.environ.get("RECAP_TO")
+RECAP_TO       = os.environ.get("RECAP_TO", "aurorahu.mandarin@gmail.com")
 RECAP_BCC      = os.environ.get("RECAP_BCC")
 
 NOTEBOOK_NAME = os.environ.get("NOTEBOOK_NAME", "Mandarin_Class")
@@ -198,6 +198,29 @@ def read_all_class_plan_sections(token: str, notebook_id: str) -> str:
         text, _ = read_section_pages(token, notebook_id, section["displayName"])
         chunks.append(f"=== {section['displayName']} ===\n{text}")
     return "\n\n".join(chunks)
+
+
+def find_section(token: str, notebook_id: str, name: str) -> str | None:
+    """Return the id of a named section, or None if it doesn't exist."""
+    sections = graph_get(
+        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections?$select=id,displayName",
+        token,
+    ).get("value", [])
+    for s in sections:
+        if s["displayName"] == name:
+            return s["id"]
+    return None
+
+
+def count_section_pages(token: str, section_id: str) -> int:
+    """Return the number of pages currently in a section."""
+    count = 0
+    url = f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id&$top=100"
+    while url:
+        data = graph_get(url, token)
+        count += len(data.get("value", []))
+        url = data.get("@odata.nextLink")
+    return count
 
 
 def find_or_create_section(token: str, notebook_id: str, name: str) -> str:

@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import datetime
 
 import markdown
 
@@ -24,10 +23,11 @@ from utils import (
     RECAP_BCC,
     RECAP_TO,
     _generate,
+    count_section_pages,
     create_draft,
     create_onenote_page,
     find_notebook,
-    find_or_create_section,
+    find_section,
     gmail_authenticate,
     graph_authenticate,
     read_all_class_plan_sections,
@@ -52,6 +52,19 @@ SYLLABUS_FILE = os.path.join(HERE, "summer_2026_syllabus.md")
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+
+def _extract_plan_topic(plan_md: str) -> str:
+    """Return a short topic string from the first # heading in the lesson plan."""
+    for line in plan_md.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            topic = stripped[2:].strip()
+            for prefix in ("Lesson Plan:", "Lesson Plan —", "Lesson Plan -", "Lesson Plan –"):
+                if topic.lower().startswith(prefix.lower()):
+                    topic = topic[len(prefix):].strip()
+            return topic or "Next Class"
+    return "Next Class"
+
 
 def _read_local_syllabus() -> str:
     """Return the contents of the local syllabus file, or empty string if absent."""
@@ -182,15 +195,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not RECAP_TO:
-        sys.exit("ERROR: RECAP_TO is not set (recipient of the recap draft).")
-
-    # 1. Read all class plan sections from OneNote.
+    # 1. Authenticate and verify the target section exists.
     token = graph_authenticate()
     notebook_id = find_notebook(token)
+    section_id = find_section(token, notebook_id, LESSON_PLAN_SECTION)
+    if section_id is None:
+        sys.exit(
+            f"ERROR: section {LESSON_PLAN_SECTION!r} does not exist in OneNote. "
+            "Run generate_syllabus.py first to create it."
+        )
+
+    # 2. Read all class plan sections from OneNote.
     all_notes = read_all_class_plan_sections(token, notebook_id)
 
-    # 2. Load local syllabus and all sent Gmail.
+    # 3. Load local syllabus and all sent Gmail.
     syllabus_text = _read_local_syllabus()
     if syllabus_text:
         print(f"Loaded syllabus from {SYLLABUS_FILE}")
@@ -201,7 +219,7 @@ def main() -> None:
     gmail_service = gmail_authenticate()
     sent_gmail_text = read_sent_gmail(gmail_service)
 
-    # 3. Generate, review, and save the lesson plan.
+    # 4. Generate, review, and save the lesson plan.
     print("Generating next lesson plan with Gemini...")
     plan_md = review_lesson_plan(
         all_notes,
@@ -214,11 +232,11 @@ def main() -> None:
     print(f"Saved lesson plan to {LESSON_PLAN_FILE}")
 
     plan_html  = markdown.markdown(plan_md, extensions=["tables", "fenced_code"])
-    page_title = f"Lesson Plan — {datetime.now():%Y-%m-%d}"
-    section_id = find_or_create_section(token, notebook_id, LESSON_PLAN_SECTION)
+    class_num  = count_section_pages(token, section_id) + 1
+    page_title = f"Class {class_num} — {_extract_plan_topic(plan_md)}"
     create_onenote_page(token, section_id, page_title, plan_html)
 
-    # 4. Generate recap email and create Gmail draft.
+    # 5. Generate recap email and create Gmail draft.
     print("Generating recap email with Gemini...")
     recap_html = generate_recap_email(all_notes)
     create_draft(gmail_service, RECAP_TO, RECAP_SUBJECT, recap_html, bcc=RECAP_BCC)
