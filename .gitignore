@@ -15,6 +15,7 @@ grammar_summary.md
 homework.md
 *_syllabus.md
 *_class_*.md
+class_*.md
 
 # Python caches
 __pycache__/
