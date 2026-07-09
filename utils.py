@@ -463,15 +463,19 @@ def read_sent_gmail(service, max_results: int = 500) -> str:
 
 
 def read_recap_emails(service, max_results: int = 100) -> str:
-    """Fetch sent Gmail messages with 'recap' in the subject."""
-    chunks = _fetch_messages(service, "in:sent subject:recap", max_results)
+    """Fetch sent or drafted Gmail messages with 'recap' in the subject.
+
+    Recaps created by generate_next_class_plan.py sit as drafts until the
+    teacher sends them, so both in:sent and in:drafts must be searched.
+    """
+    chunks = _fetch_messages(service, "subject:recap (in:sent OR in:drafts)", max_results)
     print(f"Read {len(chunks)} recap email(s).")
     return "\n\n---\n\n".join(chunks)
 
 
 def read_class_recap_emails(service, class_num: int, max_results: int = 100) -> str:
-    """Fetch sent recap emails whose subject references the given class number only."""
-    chunks = _fetch_messages(service, "in:sent subject:recap", max_results)
+    """Fetch sent or drafted recap emails whose subject references the given class number only."""
+    chunks = _fetch_messages(service, "subject:recap (in:sent OR in:drafts)", max_results)
     pattern = re.compile(rf"class\s+{class_num}\b", re.IGNORECASE)
     matched = [c for c in chunks if pattern.search(c.splitlines()[0] if c else "")]
     print(f"Read {len(matched)} recap email(s) for Class {class_num}.")
