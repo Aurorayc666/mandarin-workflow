@@ -224,19 +224,22 @@ def _copied_plan_sections_html(plan_md: str) -> str:
     return "\n".join(chunks)
 
 
-def generate_recap_email(all_notes: str, plan_md: str = "") -> tuple[str, str]:
+def generate_recap_email(plan_md: str) -> tuple[str, str]:
     """Generate the greeting/covered/vocabulary opening and the closing line as two
-    HTML fragments. The Grammar/Activities/Homework/YouTube sections are NOT
-    generated here — they're copied verbatim from the lesson plan in main()."""
+    HTML fragments, sourced ONLY from today's just-generated lesson plan. The
+    Grammar/Activities/Homework/YouTube sections are NOT generated here — they're
+    copied verbatim from the same lesson plan in main()."""
     prompt = (
         "You are a Mandarin Chinese teacher writing a brief recap email to your student "
-        "after class. Using the notes below, identify the most recent class and write "
-        "TWO separate HTML fragments for the BODY of the email:\n\n"
+        "right after today's class. Below is TODAY'S lesson plan — the class that was "
+        "just taught. Using ONLY this lesson plan, write TWO separate HTML fragments "
+        "for the BODY of the email:\n\n"
         "FRAGMENT 1 (the opening):\n"
         "1. A short, warm greeting (1–2 sentences).\n"
-        "2. <h3>What We Covered</h3> — a concise <ul> bullet list of the main topics.\n"
+        "2. <h3>What We Covered</h3> — a concise <ul> bullet list of the main topics "
+        "from today's lesson plan below.\n"
         "3. <h3>Vocabulary</h3> — an HTML <table> with columns: Hanzi | Pinyin | English "
-        "(include a header row).\n\n"
+        "(include a header row), listing the New Vocabulary from today's lesson plan below.\n\n"
         "FRAGMENT 2 (the closing):\n"
         "A one-sentence encouraging closing.\n\n"
         "Keep the whole email short and scannable — prefer bullets over paragraphs.\n"
@@ -245,8 +248,8 @@ def generate_recap_email(all_notes: str, plan_md: str = "") -> tuple[str, str]:
         "Return ONLY raw HTML for the two fragments (no <html>, <head>, or <body> tags, "
         "no code fences), separated by a line containing exactly this marker: "
         "<!--CLOSING-->\n\n"
-        "=== CLASS NOTES ===\n"
-        f"{all_notes}"
+        "=== TODAY'S LESSON PLAN ===\n"
+        f"{plan_md}"
     )
     raw = _generate(prompt)
     if "<!--CLOSING-->" in raw:
@@ -326,7 +329,7 @@ def main() -> None:
 
     # 5. Generate recap email and create Gmail draft.
     print("Generating recap email with Gemini...")
-    opening_html, closing_html = generate_recap_email(all_notes, plan_md=plan_md)
+    opening_html, closing_html = generate_recap_email(plan_md)
     copied_html   = _copied_plan_sections_html(plan_md)
     recap_html    = "\n".join(part for part in (opening_html, copied_html, closing_html) if part)
     recap_subject = "Recap " + re.sub(r"\s*[-—–]\s*", ": ", page_title, count=1)
