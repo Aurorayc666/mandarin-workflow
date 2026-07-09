@@ -226,6 +226,23 @@ def count_class_plan_pages(token: str, section_id: str) -> int:
     return count
 
 
+def read_class_plan_page(token: str, section_id: str, class_num: int) -> str:
+    """Read only the single page titled 'Class {class_num} ...' from a section.
+
+    Returns the page text prefixed with its title. Exits if no matching page exists.
+    """
+    pattern = re.compile(rf"^class\s+{class_num}\b", re.IGNORECASE)
+    url = f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id,title&$top=100"
+    while url:
+        data = graph_get(url, token)
+        for page in data.get("value", []):
+            if pattern.match(page.get("title") or ""):
+                text = _page_text(token, page["id"])
+                return f"# {page['title']}\n{text}"
+        url = data.get("@odata.nextLink")
+    sys.exit(f"ERROR: no page titled 'Class {class_num} ...' found in section.")
+
+
 def find_or_create_section(token: str, notebook_id: str, name: str) -> str:
     """Return the id of a named section, creating it if it doesn't exist."""
     sections = graph_get(
@@ -450,3 +467,12 @@ def read_recap_emails(service, max_results: int = 100) -> str:
     chunks = _fetch_messages(service, "in:sent subject:recap", max_results)
     print(f"Read {len(chunks)} recap email(s).")
     return "\n\n---\n\n".join(chunks)
+
+
+def read_class_recap_emails(service, class_num: int, max_results: int = 100) -> str:
+    """Fetch sent recap emails whose subject references the given class number only."""
+    chunks = _fetch_messages(service, "in:sent subject:recap", max_results)
+    pattern = re.compile(rf"class\s+{class_num}\b", re.IGNORECASE)
+    matched = [c for c in chunks if pattern.search(c.splitlines()[0] if c else "")]
+    print(f"Read {len(matched)} recap email(s) for Class {class_num}.")
+    return "\n\n---\n\n".join(matched)

@@ -7,7 +7,7 @@ each semester to preparing each lesson and wrapping up with student handouts.
 |--------|-------------|--------------|
 | `generate_syllabus.py` | Start of semester | Reads all past class plans + recap emails → Gemini → semester syllabus |
 | `generate_next_class_plan.py` | Before each class | Reads all past class plans + syllabus + all sent Gmail → Gemini → next lesson plan + Gmail recap draft |
-| `generate_handouts.py` | End of semester | Reads all class plans → Gemini → vocab table, sentence table, grammar summary, homework packet |
+| `generate_handouts.py` | After every 2 classes | Reads the requested class range's plans + recap emails → Gemini → a Study Guide (vocab table, sentence table, grammar summary) and a Homework packet for that range (excludes anything already in the prior semester's handouts) |
 
 All scripts share the same OneNote notebook (`Mandarin_Class`), the same
 Gemini model (`gemini-2.5-flash`), and cached auth tokens.
@@ -21,7 +21,7 @@ generate_syllabus.py        ← run once at the start of the semester
       ↓
 generate_next_class_plan.py ← run before each class (repeat 8×)
       ↓
-generate_handouts.py        ← run once at the end of the semester
+generate_handouts.py        ← run after every 2 classes, for that range's handouts
 ```
 
 `generate_syllabus.py` saves a local `{slug}_syllabus.md` file (e.g.
@@ -35,8 +35,8 @@ scope guide. Run the syllabus script first so the file exists.
 ```
 Mandarin_Class (notebook)
 ├── Spring 2026 Class Plans   ← read by all scripts
-├── Spring 2026 Handouts      ← created by generate_handouts.py
-└── Summer 2026 Class Plans   ← created automatically; new plans written here
+├── Summer 2026 Class Plans   ← created automatically; new plans written here
+└── Summer 2026 Handouts      ← created by generate_handouts.py
 ```
 
 Sections are created automatically — no manual OneNote setup needed.
@@ -154,9 +154,11 @@ python generate_next_class_plan.py --auto   # skip review; accept first draft
 
 ---
 
-## generate_handouts.py — End-of-semester student handouts
+## generate_handouts.py — Student handouts for a class range
 
-Run once at the end of a semester to produce student-facing reference materials.
+Run after every 2 classes to produce those classes' student-facing reference
+materials. Scoped to the requested range — reads only those classes' OneNote
+pages and recap emails.
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -165,23 +167,30 @@ python generate_handouts.py
 
 **What it does:**
 
-1. Reads all pages from the `SPRING_SECTION` section (default: `Spring 2026 Class Plans`).
-2. Calls Gemini four times to generate:
-   - **Vocabulary table** — every word introduced, sorted by Pinyin (Hanzi | Pinyin | English)
-   - **Sentence table** — all key sentences grouped by class
-   - **Grammar summary** — one section per grammar point with examples
+1. Prompts for which classes to cover (e.g. `3-4`). Defaults to the next
+   un-covered pair, computed by scanning existing local
+   `summer_2026_class{N}-{M}_study_guide.md` files. Errors if the requested
+   range goes past the number of `Class N ...` pages that exist in
+   `SUMMER_SECTION` (default: `Summer 2026 Class Plans`).
+2. Reads each class in the range's OneNote page plus its sent recap email.
+3. Reads the prior semester's local handout files (`vocab_table.md`,
+   `sentence_table.md`, `grammar_summary.md`, `homework.md`, if present) and
+   instructs Gemini to exclude anything already covered there.
+4. Calls Gemini to generate, for that range only:
+   - **Study Guide** — vocabulary table, sentence table, and grammar summary
+     (Hanzi | Pinyin | English throughout), combined into one document
    - **Homework packet** — character writing list, fill-in-the-blank, EN→ZH translation, composition prompt
-3. Saves each document locally (`.md`) and as a OneNote page in
-   `Spring 2026 Handouts` (created automatically).
+5. Saves each document locally (`.md`) and as a OneNote page in
+   `Summer 2026 Handouts` (created automatically), titled `Class N-M - <Document>`.
 
-**Local output files:**
+Re-run after each subsequent pair of classes to generate that range's own set of 2 pages.
+
+**Local output files** (`N-M` = class range, e.g. `1-2`):
 
 | File | Content |
 |------|---------|
-| `vocab_table.md` | Vocabulary table |
-| `sentence_table.md` | Sentence table |
-| `grammar_summary.md` | Grammar summary |
-| `homework.md` | Homework packet |
+| `summer_2026_class{N-M}_study_guide.md` | Vocabulary table, sentence table, and grammar summary for classes N-M |
+| `summer_2026_class{N-M}_homework.md` | Homework packet for classes N-M |
 
 ---
 
@@ -198,14 +207,15 @@ scripts pick it up automatically on every Gemini call.
 | File | Purpose |
 |------|---------|
 | `generate_next_class_plan.py` | Per-class lesson plan + recap email |
-| `generate_handouts.py` | End-of-semester student handouts |
+| `generate_handouts.py` | Student handouts (study guide + homework) for a class range |
 | `generate_syllabus.py` | Semester syllabus generator |
 | `utils.py` | Shared auth, OneNote, Gemini, and Gmail helpers |
 | `requirements.txt` | Python dependencies |
 | `.env` | Your secrets and config (git-ignored; copy from `.env.example`) |
 | `.env.example` | All environment variables with descriptions |
 | `next_lesson_plan.md` | Generated lesson plan output (git-ignored) |
-| `vocab_table.md` / `sentence_table.md` / `grammar_summary.md` / `homework.md` | Handout outputs (git-ignored) |
+| `vocab_table.md` / `sentence_table.md` / `grammar_summary.md` / `homework.md` | Prior semester's handout outputs, used as a do-not-repeat reference (git-ignored) |
+| `summer_2026_class{N-M}_study_guide.md` / `..._homework.md` | Per-range handout outputs for the current semester (git-ignored) |
 | `summer_2026_syllabus.md` | Generated syllabus (git-ignored) |
 | `credentials.json` | Gmail OAuth client (you provide; git-ignored) |
 | `gmail_token.json` / `ms_token_cache.json` | Cached auth tokens (auto-created; git-ignored) |

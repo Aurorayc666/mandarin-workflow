@@ -102,15 +102,20 @@ def generate_lesson_plan(
         "below or in the sent recap emails.\n\n"
         "Begin with a single top-level Markdown heading (# Class N — Topic) that "
         "states the class number and a short topic name, then structure the plan "
-        "with these sections:\n"
-        "1. Learning objectives\n"
-        "2. Review of previously covered material\n"
-        "3. New vocabulary and grammar (Hanzi | Pinyin | English)\n"
-        "4. Classroom activities\n"
-        "5. Homework\n"
-        "6. Recommended YouTube videos — find one real YouTube video relevant to the "
+        "with exactly these seven `##` sections, in this order and using these exact "
+        "headings so the plan can be parsed later:\n"
+        "## Learning Objectives\n"
+        "## Review of Previously Covered Material\n"
+        "## New Vocabulary (Hanzi | Pinyin | English table)\n"
+        "## Grammar Points (pattern in Hanzi/Pinyin/English, 2–3 example sentences each)\n"
+        "## Classroom Activities\n"
+        "## Homework\n"
+        "## Recommended YouTube Videos — find one real YouTube video relevant to the "
         "new vocabulary and one real YouTube video relevant to the new grammar point. "
         "For each, provide the video title, channel name, and full URL.\n\n"
+        "Whenever you write a Chinese sentence anywhere in the plan (vocabulary tables, "
+        "grammar examples, activities, homework, etc.), put its Pinyin (with tone marks) "
+        "immediately after it.\n\n"
         "Return only the Markdown, with no surrounding code fences.\n\n"
         "=== PAST CLASS PLANS (OneNote — all sections) ===\n"
         f"{all_notes}"
@@ -174,28 +179,81 @@ def review_lesson_plan(
         )
 
 
-def generate_recap_email(all_notes: str, plan_md: str = "") -> str:
-    """Generate a concise, bullet-pointed HTML recap email body."""
+_COPIED_PLAN_SECTIONS = (
+    ("grammar", "Grammar Points"),
+    ("activit", "Classroom Activities"),
+    ("homework", "Homework"),
+    ("youtube", "Recommended YouTube Videos"),
+)
+
+
+def _extract_section(plan_md: str, keyword: str) -> str:
+    """Return the Markdown body under the first heading containing `keyword`
+    (case-insensitive), up to the next heading of the same or shallower level."""
+    lines = plan_md.splitlines()
+    start = level = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#") and keyword.lower() in stripped.lower():
+            level = len(stripped) - len(stripped.lstrip("#"))
+            start = i + 1
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for j in range(start, len(lines)):
+        stripped = lines[j].strip()
+        if stripped.startswith("#"):
+            this_level = len(stripped) - len(stripped.lstrip("#"))
+            if this_level <= level:
+                end = j
+                break
+    return "\n".join(lines[start:end]).strip()
+
+
+def _copied_plan_sections_html(plan_md: str) -> str:
+    """Render the Grammar/Activities/Homework/YouTube sections straight from the
+    already-generated lesson plan, unchanged, as HTML."""
+    chunks: list[str] = []
+    for keyword, title in _COPIED_PLAN_SECTIONS:
+        section_md = _extract_section(plan_md, keyword)
+        if not section_md:
+            continue
+        section_html = markdown.markdown(section_md, extensions=["tables", "fenced_code"])
+        chunks.append(f"<h3>{title}</h3>\n{section_html}")
+    return "\n".join(chunks)
+
+
+def generate_recap_email(all_notes: str, plan_md: str = "") -> tuple[str, str]:
+    """Generate the greeting/covered/vocabulary opening and the closing line as two
+    HTML fragments. The Grammar/Activities/Homework/YouTube sections are NOT
+    generated here — they're copied verbatim from the lesson plan in main()."""
     prompt = (
         "You are a Mandarin Chinese teacher writing a brief recap email to your student "
         "after class. Using the notes below, identify the most recent class and write "
-        "the BODY of an HTML email with these sections:\n\n"
+        "TWO separate HTML fragments for the BODY of the email:\n\n"
+        "FRAGMENT 1 (the opening):\n"
         "1. A short, warm greeting (1–2 sentences).\n"
         "2. <h3>What We Covered</h3> — a concise <ul> bullet list of the main topics.\n"
         "3. <h3>Vocabulary</h3> — an HTML <table> with columns: Hanzi | Pinyin | English "
-        "(include a header row).\n"
-        "4. <h3>Homework</h3> — a short <ul> bullet list of homework tasks drawn from "
-        "the lesson plan below.\n"
-        "5. A one-sentence encouraging closing.\n\n"
+        "(include a header row).\n\n"
+        "FRAGMENT 2 (the closing):\n"
+        "A one-sentence encouraging closing.\n\n"
         "Keep the whole email short and scannable — prefer bullets over paragraphs.\n"
-        "Return ONLY the HTML body content. Do not include <html>, <head>, or <body> "
-        "tags, and no surrounding code fences.\n\n"
+        "Whenever you write a Chinese sentence anywhere in the email, put its Pinyin "
+        "(with tone marks) immediately after it.\n"
+        "Return ONLY raw HTML for the two fragments (no <html>, <head>, or <body> tags, "
+        "no code fences), separated by a line containing exactly this marker: "
+        "<!--CLOSING-->\n\n"
         "=== CLASS NOTES ===\n"
         f"{all_notes}"
     )
-    if plan_md:
-        prompt += f"\n\n=== LESSON PLAN (use for homework section) ===\n{plan_md}"
-    return _generate(prompt)
+    raw = _generate(prompt)
+    if "<!--CLOSING-->" in raw:
+        opening_html, closing_html = raw.split("<!--CLOSING-->", 1)
+    else:
+        opening_html, closing_html = raw, ""
+    return opening_html.strip(), closing_html.strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -268,7 +326,9 @@ def main() -> None:
 
     # 5. Generate recap email and create Gmail draft.
     print("Generating recap email with Gemini...")
-    recap_html    = generate_recap_email(all_notes, plan_md=plan_md)
+    opening_html, closing_html = generate_recap_email(all_notes, plan_md=plan_md)
+    copied_html   = _copied_plan_sections_html(plan_md)
+    recap_html    = "\n".join(part for part in (opening_html, copied_html, closing_html) if part)
     recap_subject = "Recap " + re.sub(r"\s*[-—–]\s*", ": ", page_title, count=1)
     create_draft(gmail_service, RECAP_TO, recap_subject, recap_html, bcc=RECAP_BCC)
 
