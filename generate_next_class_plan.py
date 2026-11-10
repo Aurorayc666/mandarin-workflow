@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import sys
 from datetime import datetime
 
 import markdown
@@ -29,7 +28,7 @@ from utils import (
     create_draft,
     create_onenote_page,
     find_notebook,
-    find_section,
+    find_or_create_section,
     gmail_authenticate,
     graph_authenticate,
     read_all_class_plan_sections,
@@ -40,12 +39,19 @@ from utils import (
 # Configuration
 # --------------------------------------------------------------------------- #
 
-# Target section in OneNote where new class plans are saved.
-LESSON_PLAN_SECTION = os.environ.get("LESSON_PLAN_SECTION", "Summer 2026 Class Plans")
+# The semester this script generates class plans for. Change this one value (or
+# set the SEMESTER env var) when moving to a new semester — the target section and
+# the syllabus file are both derived from it.
+SEMESTER = os.environ.get("SEMESTER", "Fall 2026")
+_SEMESTER_SLUG = SEMESTER.lower().replace(" ", "_")
 
-# Local syllabus file produced by generate_syllabus.py.
-# Update this path when moving to a new semester.
-SYLLABUS_FILE = os.path.join(HERE, "summer_2026_syllabus.md")
+# Target section in OneNote where new class plans are saved (auto-created if absent).
+LESSON_PLAN_SECTION = os.environ.get(
+    "LESSON_PLAN_SECTION", f"{SEMESTER} Class Plans"
+)
+
+# Local syllabus file produced by generate_syllabus.py for this semester.
+SYLLABUS_FILE = os.path.join(HERE, f"{_SEMESTER_SLUG}_syllabus.md")
 
 
 # --------------------------------------------------------------------------- #
@@ -69,6 +75,11 @@ def _extract_plan_topic(plan_md: str) -> str:
                     topic,
                     flags=re.IGNORECASE,
                 ).strip()
+                # Strip a leading "Class N" the model may have prepended — the
+                # authoritative number is computed from the target section.
+                topic = re.sub(
+                    r"^class\s+\d+\s*[-—–:]?\s*", "", topic, flags=re.IGNORECASE
+                ).strip()
                 if topic:
                     return topic
     return "Next Class"
@@ -90,6 +101,7 @@ def generate_lesson_plan(
     all_notes: str,
     syllabus_text: str = "",
     sent_gmail_text: str = "",
+    class_num: int = 1,
     previous_draft: str | None = None,
     feedback: str | None = None,
 ) -> str:
@@ -97,11 +109,15 @@ def generate_lesson_plan(
     prompt = (
         "You are an experienced Mandarin Chinese teacher. Below are all past class "
         "plans and, where available, a course syllabus and past email recaps. "
-        "Based on this context, write a lesson plan in **Markdown** for the NEXT class.\n\n"
+        f"Based on this context, write a lesson plan in **Markdown** for {SEMESTER} "
+        f"Class {class_num} — the NEXT class in the {SEMESTER} course.\n\n"
+        "Follow the course syllabus below: this class must cover the syllabus entry "
+        f"for Class {class_num} (its vocabulary, grammar, and thematic focus).\n\n"
         "Do not re-teach vocabulary or grammar that already appears in the class plans "
         "below or in the sent recap emails.\n\n"
-        "Begin with a single top-level Markdown heading (# Class N — Topic) that "
-        "states the class number and a short topic name, then structure the plan "
+        f"Begin with a single top-level Markdown heading (# Class {class_num} — Topic) "
+        f"using exactly the class number {class_num} and a short topic name, then "
+        "structure the plan "
         "with exactly these seven `##` sections, in this order, using these exact "
         "headings verbatim and nothing else on the heading line (put any "
         "instructions in the section body, never in the heading itself):\n"
@@ -151,10 +167,16 @@ def review_lesson_plan(
     all_notes: str,
     syllabus_text: str = "",
     sent_gmail_text: str = "",
+    class_num: int = 1,
     auto: bool = False,
 ) -> str:
     """Generate a lesson plan and let the teacher approve or refine it interactively."""
-    draft = generate_lesson_plan(all_notes, syllabus_text=syllabus_text, sent_gmail_text=sent_gmail_text)
+    draft = generate_lesson_plan(
+        all_notes,
+        syllabus_text=syllabus_text,
+        sent_gmail_text=sent_gmail_text,
+        class_num=class_num,
+    )
     if auto:
         print("(--auto: accepting the first lesson plan without review)")
         return draft
@@ -179,6 +201,7 @@ def review_lesson_plan(
             all_notes,
             syllabus_text=syllabus_text,
             sent_gmail_text=sent_gmail_text,
+            class_num=class_num,
             previous_draft=draft,
             feedback=response,
         )
@@ -279,15 +302,15 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # 1. Authenticate and verify the target section exists.
+    # 1. Authenticate and locate (creating if needed) the target section.
     token = graph_authenticate()
     notebook_id = find_notebook(token)
-    section_id = find_section(token, notebook_id, LESSON_PLAN_SECTION)
-    if section_id is None:
-        sys.exit(
-            f"ERROR: section {LESSON_PLAN_SECTION!r} does not exist in OneNote. "
-            "Run generate_syllabus.py first to create it."
-        )
+    section_id = find_or_create_section(token, notebook_id, LESSON_PLAN_SECTION)
+
+    # This class's number is derived from how many "Class N ..." pages already
+    # exist in the target section — never from whatever the model guesses.
+    class_num = count_class_plan_pages(token, section_id) + 1
+    print(f"Generating {SEMESTER} Class {class_num} (section {LESSON_PLAN_SECTION!r}).")
 
     # 2. Read all class plan sections from OneNote.
     all_notes = read_all_class_plan_sections(token, notebook_id)
@@ -309,18 +332,18 @@ def main() -> None:
         all_notes,
         syllabus_text=syllabus_text,
         sent_gmail_text=sent_gmail_text,
+        class_num=class_num,
         auto=args.auto,
     )
     topic    = _extract_plan_topic(plan_md)
     date_str = datetime.now().strftime("%Y-%m-%d")
 
-    # If the model already numbered the class (e.g. "Class 1 - Greetings"), use it
-    # directly; otherwise fall back to the section page count.
-    if re.match(r"^class\s+\d+", topic, re.IGNORECASE):
-        page_title = topic
-    else:
-        class_num  = count_class_plan_pages(token, section_id) + 1
-        page_title = f"Class {class_num} — {topic}"
+    # The class number is authoritative (from the section page count). Build the
+    # title from it and force the plan's H1 to match, whatever the model wrote.
+    page_title = f"Class {class_num} — {topic}"
+    plan_md = re.sub(
+        r"^\s*#[ \t]+.*$", f"# {page_title}", plan_md, count=1, flags=re.MULTILINE
+    )
 
     slug = re.sub(r"[^\w\s-]", "", page_title).strip().replace(" ", "_").lower()
     lesson_plan_file = os.path.join(HERE, f"{slug}_{date_str}.md")

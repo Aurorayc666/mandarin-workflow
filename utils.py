@@ -101,7 +101,15 @@ def _graph_request(method: str, url: str, token: str, **kwargs) -> requests.Resp
     headers["Authorization"] = f"Bearer {token}"
     backoff = 2
     for attempt in range(5):
-        resp = requests.request(method, url, headers=headers, **kwargs)
+        try:
+            resp = requests.request(method, url, headers=headers, **kwargs)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            if attempt == 4:
+                raise
+            print(f"  connection error ({type(exc).__name__}); retrying in {backoff}s...")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+            continue
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", backoff))
             print(f"  throttled (429); retrying in {wait}s...")
@@ -315,8 +323,22 @@ def _gem_instructions() -> str | None:
     return None
 
 
+def _retry_delay_seconds(exc) -> float | None:
+    """Pull the server-suggested retry delay (seconds) out of a Gemini 429's details."""
+    try:
+        for d in exc.details.get("error", {}).get("details", []):
+            if str(d.get("@type", "")).endswith("RetryInfo"):
+                delay = d.get("retryDelay", "")
+                if delay.endswith("s"):
+                    return float(delay[:-1])
+    except Exception:
+        pass
+    return None
+
+
 def _generate(prompt: str) -> str:
-    """Run one Gemini call with exponential backoff on 503/overload errors."""
+    """Run one Gemini call, retrying with backoff on 503/overload errors and on
+    429 rate-limit errors (honoring the API's own suggested retry delay)."""
     from google.genai import errors as genai_errors
 
     client = _gemini_client()
@@ -335,6 +357,13 @@ def _generate(prompt: str) -> str:
                 raise
             print(f"  Gemini unavailable ({exc}); retrying in {backoff}s...")
             time.sleep(backoff)
+            backoff = min(backoff * 2, 120)
+        except genai_errors.ClientError as exc:
+            if exc.code != 429 or attempt == 5:
+                raise
+            wait = _retry_delay_seconds(exc) or backoff
+            print(f"  Gemini rate limit (429) hit; retrying in {wait:.0f}s...")
+            time.sleep(wait + 2)
             backoff = min(backoff * 2, 120)
 
 
@@ -432,14 +461,14 @@ def _fetch_messages(service, query: str, max_results: int) -> list[str]:
         kwargs: dict = dict(userId="me", q=query, maxResults=batch)
         if page_token:
             kwargs["pageToken"] = page_token
-        resp = service.users().messages().list(**kwargs).execute()
+        resp = service.users().messages().list(**kwargs).execute(num_retries=5)
         messages = resp.get("messages", [])
         if not messages:
             break
         for msg in messages:
             full = service.users().messages().get(
                 userId="me", id=msg["id"], format="full"
-            ).execute()
+            ).execute(num_retries=5)
             headers = {
                 h["name"]: h["value"]
                 for h in full.get("payload", {}).get("headers", [])
@@ -475,7 +504,10 @@ def read_recap_emails(service, max_results: int = 100) -> str:
 
 def read_class_recap_emails(service, class_num: int, max_results: int = 100) -> str:
     """Fetch sent or drafted recap emails whose subject references the given class number only."""
-    chunks = _fetch_messages(service, "subject:recap (in:sent OR in:drafts)", max_results)
+    # Narrow the search server-side so only this class's recaps are downloaded;
+    # fetching every recap per class blew through Gmail's per-minute quota.
+    query = f'subject:recap subject:"class {class_num}" (in:sent OR in:drafts)'
+    chunks = _fetch_messages(service, query, max_results)
     pattern = re.compile(rf"class\s+{class_num}\b", re.IGNORECASE)
     matched = [c for c in chunks if pattern.search(c.splitlines()[0] if c else "")]
     print(f"Read {len(matched)} recap email(s) for Class {class_num}.")

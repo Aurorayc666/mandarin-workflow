@@ -1,20 +1,22 @@
 """generate_handouts.py — student handout materials for a range of classes.
 
-Prompts for which classes to generate handouts for (e.g. "1-2"), defaulting to
-the next un-handed-out pair based on what's already been generated locally.
-Reads the OneNote page(s) for those classes (the "Class N ..." pages in the
-Summer 2026 section) plus their recap emails, then uses Gemini to produce two
-student-facing documents scoped to those classes only:
+Prompts for the semester, then which classes to generate handouts for (e.g.
+"1-2"), defaulting to the next un-handed-out pair based on what's already been
+generated locally for that semester. Reads the OneNote page(s) for those
+classes (the "Class N ..." pages in the "<semester> Class Plans" section) plus
+their recap emails, then uses Gemini to produce two student-facing documents
+scoped to those classes only:
 
   1. Study guide — vocabulary table, sentence table, and grammar summary
   2. Homework packet (writing list, fill-in-the-blank, translation, composition)
 
-Anything already present in the prior semester's local handout files
-(vocab_table.md, sentence_table.md, grammar_summary.md, homework.md) is
+Anything already present in ANY previously generated handout file, across every
+semester (every local *_study_guide.md / *_homework.md, plus the legacy
+vocab_table.md / sentence_table.md / grammar_summary.md / homework.md), is
 excluded, since the student already received that material.
 
 Each document is saved as a local .md file and as a page in a
-"Summer 2026 Handouts" OneNote section (created if needed), titled
+"<semester> Handouts" OneNote section (created if needed), titled
 "Class N-M - <Document>".
 
 Run after the relevant classes' plans (and recaps) exist:
@@ -47,33 +49,36 @@ from utils import (
 # Configuration
 # --------------------------------------------------------------------------- #
 
-SUMMER_SECTION   = os.environ.get("SUMMER_SECTION", "Summer 2026 Class Plans")
-HANDOUTS_SECTION = "Summer 2026 Handouts"
+# Legacy pre-2026-07-08 handout files (one set, no semester/class-range in the
+# name) — still included in the do-not-repeat scan if present.
+_LEGACY_HANDOUT_FILES = {
+    "vocab_table.md",
+    "sentence_table.md",
+    "grammar_summary.md",
+    "homework.md",
+}
 
-# Prior semester's handout files — used only as a do-not-repeat reference.
-PREV_VOCAB_TABLE_FILE    = os.path.join(HERE, "vocab_table.md")
-PREV_SENTENCE_TABLE_FILE = os.path.join(HERE, "sentence_table.md")
-PREV_GRAMMAR_FILE        = os.path.join(HERE, "grammar_summary.md")
-PREV_HOMEWORK_FILE       = os.path.join(HERE, "homework.md")
-
-# This-semester local handout files, named by class range — scanned to figure
-# out which classes have already had handouts generated.
-_RANGE_FILE_RE = re.compile(r"summer_2026_class(\d+)(?:-(\d+))?_study_guide\.md$")
+# Any semester's study guide / homework packet, e.g. "fall_2026_class1-2_homework.md".
+_HANDOUT_FILE_RE = re.compile(r".*_(?:study_guide|homework)\.md$")
 
 
 def _range_label(start: int, end: int) -> str:
     return f"{start}-{end}" if end != start else f"{start}"
 
 
-def _local_path(start: int, end: int, suffix: str) -> str:
-    return os.path.join(HERE, f"summer_2026_class{_range_label(start, end)}_{suffix}.md")
+def _local_path(slug: str, start: int, end: int, suffix: str) -> str:
+    return os.path.join(HERE, f"{slug}_class{_range_label(start, end)}_{suffix}.md")
 
 
-def _next_default_range(max_class: int) -> tuple[int, int]:
-    """Look at existing study-guide files to find the next un-covered class range."""
+def _next_default_range(slug: str, max_class: int) -> tuple[int, int]:
+    """Look at this semester's existing study-guide files to find the next
+    un-covered class range."""
+    range_file_re = re.compile(
+        rf"^{re.escape(slug)}_class(\d+)(?:-(\d+))?_study_guide\.md$"
+    )
     highest_covered = 0
     for name in os.listdir(HERE):
-        m = _RANGE_FILE_RE.match(name)
+        m = range_file_re.match(name)
         if m:
             end = int(m.group(2) or m.group(1))
             highest_covered = max(highest_covered, end)
@@ -84,9 +89,9 @@ def _next_default_range(max_class: int) -> tuple[int, int]:
     return start, end
 
 
-def _prompt_for_range(max_class: int) -> tuple[int, int]:
+def _prompt_for_range(slug: str, max_class: int) -> tuple[int, int]:
     """Ask the teacher which classes to generate handouts for."""
-    default_start, default_end = _next_default_range(max_class)
+    default_start, default_end = _next_default_range(slug, max_class)
     default_label = _range_label(default_start, default_end)
     try:
         raw = input(
@@ -116,31 +121,33 @@ def _prompt_for_range(max_class: int) -> tuple[int, int]:
 # Context helpers
 # --------------------------------------------------------------------------- #
 
-def _read_previous_handouts() -> str:
-    """Concatenate any existing prior-semester handout files, if present."""
+def _read_previous_handouts(exclude_paths: set[str]) -> str:
+    """Concatenate every previously generated handout file across every semester
+    (legacy single-file set plus every *_study_guide.md / *_homework.md), so
+    Gemini can avoid repeating material the student has already received."""
     chunks: list[str] = []
-    for label, path in (
-        ("Vocabulary Table", PREV_VOCAB_TABLE_FILE),
-        ("Sentence Table", PREV_SENTENCE_TABLE_FILE),
-        ("Grammar Summary", PREV_GRAMMAR_FILE),
-        ("Homework Packet", PREV_HOMEWORK_FILE),
-    ):
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as fh:
-                text = fh.read().strip()
-            if text:
-                chunks.append(f"## {label}\n{text}")
+    for name in sorted(os.listdir(HERE)):
+        path = os.path.join(HERE, name)
+        if path in exclude_paths:
+            continue
+        if name not in _LEGACY_HANDOUT_FILES and not _HANDOUT_FILE_RE.match(name):
+            continue
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read().strip()
+        if text:
+            chunks.append(f"## {name}\n{text}")
     return "\n\n".join(chunks)
 
 
 def _dedup_block(previous_handouts: str) -> str:
-    """Return a prompt block instructing Gemini to exclude prior-semester content."""
+    """Return a prompt block instructing Gemini to exclude already-covered content."""
     if not previous_handouts:
         return ""
     return (
-        "\n\nDo not include anything that already appears in the prior semester's "
-        "handouts below — the student has already received that material.\n\n"
-        "=== PRIOR SEMESTER HANDOUTS (already covered — exclude) ===\n"
+        "\n\nDo not include anything that already appears in the previously "
+        "generated handouts below — the student has already received that "
+        "material.\n\n"
+        "=== PREVIOUSLY GENERATED HANDOUTS, ALL SEMESTERS (already covered — exclude) ===\n"
         f"{previous_handouts}"
     )
 
@@ -262,29 +269,44 @@ def generate_homework(context_text: str, previous_handouts: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def main() -> None:
-    previous_handouts = _read_previous_handouts()
+    try:
+        semester = input(
+            "Generate handouts for which semester? (e.g. Fall 2026): "
+        ).strip()
+    except EOFError:
+        semester = ""
+    if not semester:
+        semester = os.environ.get("SEMESTER", "Fall 2026")
+
+    slug             = semester.lower().replace(" ", "_")
+    section_name     = f"{semester} Class Plans"
+    handouts_section = f"{semester} Handouts"
 
     token = graph_authenticate()
     notebook_id = find_notebook(token)
-    section_id = find_section(token, notebook_id, SUMMER_SECTION)
+    section_id = find_section(token, notebook_id, section_name)
     if not section_id:
-        sys.exit(f"ERROR: section {SUMMER_SECTION!r} not found.")
+        sys.exit(f"ERROR: section {section_name!r} not found.")
 
     max_class = count_class_plan_pages(token, section_id)
     if max_class == 0:
-        sys.exit(f"ERROR: no 'Class N ...' pages found in {SUMMER_SECTION!r}.")
+        sys.exit(f"ERROR: no 'Class N ...' pages found in {section_name!r}.")
 
-    start, end = _prompt_for_range(max_class)
+    start, end = _prompt_for_range(slug, max_class)
     label = _range_label(start, end)
+
+    study_guide_path = _local_path(slug, start, end, "study_guide")
+    homework_path    = _local_path(slug, start, end, "homework")
+    previous_handouts = _read_previous_handouts({study_guide_path, homework_path})
 
     gmail_service = gmail_authenticate()
     context_text = _read_classes_context(token, section_id, gmail_service, start, end)
 
-    handouts_sid = find_or_create_section(token, notebook_id, HANDOUTS_SECTION)
+    handouts_sid = find_or_create_section(token, notebook_id, handouts_section)
 
     artifacts = [
-        ("study guide", _local_path(start, end, "study_guide"), generate_study_guide, f"Class {label} - Study Guide"),
-        ("homework packet", _local_path(start, end, "homework"), generate_homework, f"Class {label} - Homework"),
+        ("study guide", study_guide_path, generate_study_guide, f"Class {label} - Study Guide"),
+        ("homework packet", homework_path, generate_homework, f"Class {label} - Homework"),
     ]
 
     for artifact_label, path, fn, title in artifacts:
