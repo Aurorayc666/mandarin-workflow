@@ -15,9 +15,10 @@ semester (every local *_study_guide.md / *_homework.md, plus the legacy
 vocab_table.md / sentence_table.md / grammar_summary.md / homework.md), is
 excluded, since the student already received that material.
 
-Each document is saved as a local .md file and as a page in a
-"<semester> Handouts" OneNote section (created if needed), titled
-"Class N-M - <Document>".
+Each document is saved as a local .md file and as a page in the same
+"<semester> Class Plans" OneNote section as the lesson plans, titled
+"Class N-M - <Document>". (Lesson-plan lookups skip these pages by their
+"Study Guide" / "Homework" title suffix — see utils.is_handout_title.)
 
 Run after the relevant classes' plans (and recaps) exist:
   python generate_handouts.py
@@ -39,7 +40,6 @@ from utils import (
     count_class_plan_pages,
     create_onenote_page,
     find_notebook,
-    find_or_create_section,
     find_section,
     gmail_authenticate,
     graph_authenticate,
@@ -282,7 +282,6 @@ def main() -> None:
 
     slug             = semester.lower().replace(" ", "_")
     section_name     = f"{semester} Class Plans"
-    handouts_section = f"{semester} Handouts"
 
     token = graph_authenticate()
     notebook_id = find_notebook(token)
@@ -304,8 +303,6 @@ def main() -> None:
     gmail_service = gmail_authenticate()
     context_text = _read_classes_context(token, section_id, gmail_service, start, end)
 
-    handouts_sid = find_or_create_section(token, notebook_id, handouts_section)
-
     artifacts = [
         ("study guide", study_guide_path, generate_study_guide, f"Class {label} - Study Guide"),
         ("homework packet", homework_path, generate_homework, f"Class {label} - Homework"),
@@ -318,7 +315,7 @@ def main() -> None:
             fh.write(md)
         print(f"Saved {path}")
         html = markdown.markdown(md, extensions=["tables", "fenced_code"])
-        create_onenote_page(token, handouts_sid, title, html)
+        create_onenote_page(token, section_id, title, html)
 
     print(f"\nDone. 2 Class {label} handout files saved locally and 2 OneNote pages created.")
 

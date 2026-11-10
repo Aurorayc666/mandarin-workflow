@@ -1,9 +1,12 @@
 """generate_syllabus.py — generate a Mandarin course syllabus for a given semester.
 
-Uses the semester from SEMESTER in .env (or --semester for a one-off run), then reads all OneNote
-sections whose names contain 'class plans' and all sent Gmail recap emails as
-context. Uses Gemini to generate the syllabus, with an interactive review loop
-and a second revision gate after saving.
+Uses the semester from SEMESTER in .env (or --semester for a one-off run).
+For a forward-looking syllabus, the record of what the student has already
+covered is every past semester's handout pages (study guides etc.) plus sent
+Gmail recap emails, NOT past syllabi or class plans, because the last class or
+two of a syllabus often isn't reached. (Spring is retrospective and reads its own
+class plans.) Uses Gemini to generate the syllabus, with an interactive review
+loop and a second revision gate after saving.
 
 Run:
   python generate_syllabus.py           # interactive
@@ -26,7 +29,7 @@ from utils import (
     find_or_create_section,
     gmail_authenticate,
     graph_authenticate,
-    read_all_class_plan_sections,
+    read_past_handouts,
     read_recap_emails,
     read_section_pages,
     add_semester_argument,
@@ -69,10 +72,13 @@ def _build_syllabus_prompt(semester: str, all_notes: str, recap_emails: str) -> 
         # past content so nothing is repeated.
         body = (
             f"You are an experienced Mandarin Chinese teacher planning the {semester} "
-            "semester. You have two sources of context below: all past OneNote class "
-            "plan sections and sent recap emails. Study both carefully so you know "
+            "semester. You have two sources of context below: the handouts from each "
+            "past semester (study guides with the vocabulary, sentences and grammar "
+            "actually taught) and sent recap emails. Study both carefully so you know "
             "exactly what vocabulary and grammar the student has already covered — "
-            "do not repeat any of it.\n\n"
+            "do not repeat any of it. Past syllabi are deliberately not included: "
+            "their last classes were often never reached, so treat only what appears "
+            "in the handouts or recap emails as covered.\n\n"
             "First, include a short \"## HSK Alignment\" section that:\n"
             "- States which HSK level the past content corresponds to\n"
             "- Lists key HSK Level 2 vocabulary and grammar topics not yet covered\n\n"
@@ -89,7 +95,7 @@ def _build_syllabus_prompt(semester: str, all_notes: str, recap_emails: str) -> 
             "Whenever you write a Chinese sentence anywhere (not just the vocabulary "
             "table), put its Pinyin (with tone marks) immediately after it.\n\n"
             "Return only the Markdown, no surrounding text or code fences.\n\n"
-            "=== PAST CLASS PLANS (OneNote — all semesters) ===\n"
+            "=== HANDOUTS FROM EACH PAST SEMESTER (already covered) ===\n"
             f"{all_notes}"
         )
 
@@ -178,13 +184,16 @@ def main() -> None:
 
     # Read context from OneNote and Gmail recaps.
     # Spring: read only the spring section (retrospective — don't mix in future semesters).
-    # Summer / Fall / other: read every 'class plans' section that exists.
+    # Summer / Fall / other: read past semesters' handouts (what was actually
+    # covered) rather than past syllabi, whose last classes often weren't reached.
     token = graph_authenticate()
     notebook_id = find_notebook(token)
     if "spring" in semester.lower():
         all_notes, _ = read_section_pages(token, notebook_id, section_name)
     else:
-        all_notes = read_all_class_plan_sections(token, notebook_id)
+        all_notes = read_past_handouts(token, notebook_id, exclude_semester=semester)
+        if not all_notes:
+            print("WARNING: no past handouts found; the syllabus will rely on recap emails only.")
 
     print("Reading recap emails from Gmail...")
     gmail_service = gmail_authenticate()

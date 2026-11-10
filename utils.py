@@ -173,8 +173,31 @@ def _page_text(token: str, page_id: str) -> str:
     return soup.get_text(separator="\n", strip=True)
 
 
+# Handout pages (from generate_handouts.py) live in the "<semester> Class Plans"
+# section alongside the lesson plans, titled e.g. "Class 1-5 - Study Guide".
+# They start with "Class N" too, so anything that counts or looks up lesson
+# plans must skip them.
+# Matches exactly the titles generate_handouts.py writes ("Class 1-5 - Study
+# Guide", "Class 3 - Homework"), plus the older per-semester style ("Spring
+# 2026 — Vocabulary Table" / Sentence Table / Grammar Summary / Homework Packet),
+# so a lesson plan like "Class 7 — Doing Homework" is not mistaken for one.
+_HANDOUT_TITLE_RE = re.compile(
+    r"^(?:class\s+\d+(?:-\d+)?\s+-\s+(?:study guide|homework)"
+    r"|.+\s[—–-]\s(?:vocabulary table|sentence table|grammar summary|homework packet))$",
+    re.IGNORECASE,
+)
+
+
+def is_handout_title(title: str | None) -> bool:
+    """True for handout pages like 'Class 1-5 - Study Guide' / 'Class 3 - Homework'."""
+    return bool(_HANDOUT_TITLE_RE.match((title or "").strip()))
+
+
 def read_section_pages(token: str, notebook_id: str, section_name: str) -> tuple[str, str]:
     """Read all pages from a single named section, sorted ascending by modification time.
+
+    Handout pages are skipped: they only repeat the lesson plans and would bloat
+    the Gemini context.
 
     Returns (concatenated_text, section_id). Exits if the section is not found.
     """
@@ -198,7 +221,9 @@ def read_section_pages(token: str, notebook_id: str, section_name: str) -> tuple
     )
     while url:
         data = graph_get(url, token)
-        pages.extend(data.get("value", []))
+        pages.extend(
+            p for p in data.get("value", []) if not is_handout_title(p.get("title"))
+        )
         url = data.get("@odata.nextLink")
 
     pages.sort(key=lambda p: p.get("lastModifiedDateTime", ""))
@@ -209,6 +234,88 @@ def read_section_pages(token: str, notebook_id: str, section_name: str) -> tuple
         text = _page_text(token, page["id"])
         chunks.append(f"# {title}\n{text}")
     return "\n\n---\n\n".join(chunks), section_id
+
+
+_SEASON_ORDER = {"spring": 0, "summer": 1, "fall": 2, "winter": 3}
+
+
+def _semester_sort_key(semester: str) -> tuple:
+    """Sort 'Spring 2026' < 'Summer 2026' < 'Fall 2026' < 'Winter 2026' < 'Spring 2027'."""
+    parts = semester.lower().split()
+    year = next((int(p) for p in parts if p.isdigit()), 9999)
+    season = next((_SEASON_ORDER[p] for p in parts if p in _SEASON_ORDER), 9)
+    return (year, season, semester.lower())
+
+
+def read_past_handouts(token: str, notebook_id: str, exclude_semester: str) -> str:
+    """Read every past semester's handout pages — the record of what was actually
+    covered — for use as syllabus context.
+
+    Handouts live either in a "<semester> Handouts" section (older semesters) or
+    as handout-titled pages inside "<semester> Class Plans" (current layout).
+    Homework pages are skipped (they only practise the study-guide material), as
+    is the semester being planned. Warns when a semester has lesson plans for
+    classes its handouts don't cover yet, since those classes would be missed.
+    """
+    sections = graph_get(
+        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections?$select=id,displayName",
+        token,
+    ).get("value", [])
+
+    by_semester: dict[str, list[tuple[str, str]]] = {}   # semester -> [(title, page_id)]
+    covered_upto: dict[str, int] = {}                     # semester -> last class in handouts
+    lesson_plans: dict[str, int] = {}                     # semester -> lesson plan count
+    for sec in sections:
+        name = sec["displayName"]
+        lower = name.lower()
+        if lower.endswith(" handouts"):
+            semester, handout_section = name[: -len(" handouts")], True
+        elif lower.endswith(" class plans"):
+            semester, handout_section = name[: -len(" class plans")], False
+        else:
+            continue
+        if semester.strip().lower() == exclude_semester.strip().lower():
+            continue
+
+        url = f"{GRAPH_BASE}/me/onenote/sections/{sec['id']}/pages?$select=id,title&$top=100"
+        while url:
+            data = graph_get(url, token)
+            for page in data.get("value", []):
+                title = page.get("title") or ""
+                if not handout_section:
+                    if not is_handout_title(title):
+                        if re.match(r"^class\s+\d+", title, re.IGNORECASE):
+                            lesson_plans[semester] = lesson_plans.get(semester, 0) + 1
+                        continue
+                m = re.match(r"^class\s+(?:\d+-)?(\d+)\b", title, re.IGNORECASE)
+                if m:
+                    covered_upto[semester] = max(covered_upto.get(semester, 0), int(m.group(1)))
+                if "homework" in title.lower():
+                    continue
+                by_semester.setdefault(semester, []).append((title, page["id"]))
+            url = data.get("@odata.nextLink")
+
+    for semester, n_plans in sorted(lesson_plans.items(), key=lambda kv: _semester_sort_key(kv[0])):
+        upto = covered_upto.get(semester)
+        if semester not in by_semester:
+            print(
+                f"WARNING: {semester} has {n_plans} lesson plans but no handouts, so none "
+                "of it will count as covered."
+            )
+        elif upto is not None and n_plans > upto:
+            print(
+                f"WARNING: {semester} has {n_plans} lesson plans but handouts only cover "
+                f"Classes 1-{upto}. Classes {upto + 1}-{n_plans} won't count as covered — "
+                f'run: python generate_handouts.py --semester "{semester}"'
+            )
+
+    chunks: list[str] = []
+    for semester in sorted(by_semester, key=_semester_sort_key):
+        pages = by_semester[semester]
+        print(f"Reading {len(pages)} handout page(s) for {semester}...")
+        texts = [f"# {title}\n{_page_text(token, pid)}" for title, pid in pages]
+        chunks.append(f"=== {semester} handouts ===\n" + "\n\n---\n\n".join(texts))
+    return "\n\n".join(chunks)
 
 
 def read_all_class_plan_sections(token: str, notebook_id: str) -> str:
@@ -243,13 +350,14 @@ def find_section(token: str, notebook_id: str, name: str) -> str | None:
 
 
 def count_class_plan_pages(token: str, section_id: str) -> int:
-    """Count only pages whose title matches 'Class N …' — ignores other pages in the section."""
+    """Count only lesson-plan pages titled 'Class N …' — ignores handouts and other pages."""
     count = 0
     url = f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id,title&$top=100"
     while url:
         data = graph_get(url, token)
         for page in data.get("value", []):
-            if re.match(r"^class\s+\d+", page.get("title") or "", re.IGNORECASE):
+            title = page.get("title") or ""
+            if re.match(r"^class\s+\d+", title, re.IGNORECASE) and not is_handout_title(title):
                 count += 1
         url = data.get("@odata.nextLink")
     return count
@@ -265,7 +373,8 @@ def read_class_plan_page(token: str, section_id: str, class_num: int) -> str:
     while url:
         data = graph_get(url, token)
         for page in data.get("value", []):
-            if pattern.match(page.get("title") or ""):
+            title = page.get("title") or ""
+            if pattern.match(title) and not is_handout_title(title):
                 text = _page_text(token, page["id"])
                 return f"# {page['title']}\n{text}"
         url = data.get("@odata.nextLink")
