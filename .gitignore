@@ -31,3 +31,6 @@ For_Students/
 
 # Local Markdown copies of generated lesson plans, syllabi and handouts
 back_files/
+
+# Personal enrollment email wording (name, prices)
+syllabus_email_template.txt

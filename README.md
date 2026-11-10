@@ -37,6 +37,15 @@ scope guide. Run the syllabus script first so the file exists.
 - `For_Students/` — Word + PDF copies of each syllabus and handout to send
   to students.
 
+**Enrollment email:** after a syllabus is generated, `generate_syllabus.py`
+creates a Gmail draft (never sent automatically) to `RECAP_TO` / `RECAP_BCC`
+with the PDF syllabus attached. Its wording is in `syllabus_email_template.txt`
+(first line = subject; `{semester}`, `{level}`, `{start_date}` etc. are filled
+in). Course details come from `.env`: `COURSE_LEVEL`, `CLASS_START_DATE`
+(YYYY-MM-DD), `CLASS_COUNT`, `CLASS_TIME`, `TUITION`, `PRIVATE_RATE` — update
+them with `SEMESTER` each semester. The template is git-ignored (personal
+details), like `.env`.
+
 ---
 
 ## OneNote structure

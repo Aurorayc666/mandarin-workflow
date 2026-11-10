@@ -461,7 +461,7 @@ th    { background: #D9E2F3; }
 _BLOCK_START_RE = re.compile(r"^\s*(?:[*+-]\s|\d+[.)]\s|\|)")
 
 
-def md_to_html(md_text: str) -> str:
+def md_to_html(md_text: str, line_breaks: bool = False) -> str:
     """Convert Gemini's Markdown to HTML (for OneNote and student copies).
 
     Gemini often puts a list or table directly under a line like
@@ -494,7 +494,10 @@ def md_to_html(md_text: str) -> str:
         line = re.sub(r"_{3,}", lambda m: "\\_" * len(m.group()), line)
         out.append(line)
         prev = line
-    return md_lib.markdown("\n".join(out), extensions=["tables", "fenced_code"])
+    extensions = ["tables", "fenced_code"]
+    if line_breaks:                  # every newline is a <br> (e.g. email signatures)
+        extensions.append("nl2br")
+    return md_lib.markdown("\n".join(out), extensions=extensions)
 
 
 def strip_markdown_section(md_text: str, heading: str) -> str:
@@ -506,14 +509,15 @@ def strip_markdown_section(md_text: str, heading: str) -> str:
     return pattern.sub("", md_text).lstrip()
 
 
-def export_for_students(md_text: str, title: str) -> None:
+def export_for_students(md_text: str, title: str) -> str | None:
     """Save a student copy of a generated document as For_Students/<title>.docx and .pdf.
 
     Converts the Markdown to HTML and lets Microsoft Word (run hidden, in its own
     instance so the teacher's open documents are untouched) save it as Word and
     PDF, so Chinese characters, Pinyin tone marks and tables render properly.
-    Never raises: on failure it prints a warning, since the content is already
-    saved locally and in OneNote.
+    Returns the PDF's path, or None if the export failed. Never raises: on
+    failure it prints a warning, since the content is already saved locally and
+    in OneNote.
     """
     os.makedirs(FOR_STUDENTS_DIR, exist_ok=True)
     safe = re.sub(r'[<>:"/\\|?*]', "-", title).strip()
@@ -538,6 +542,7 @@ def export_for_students(md_text: str, title: str) -> None:
         )
 
     word = doc = None
+    result = None
     try:
         import pythoncom
         import win32com.client
@@ -551,6 +556,7 @@ def export_for_students(md_text: str, title: str) -> None:
         doc.SaveAs2(docx_path, FileFormat=16)   # wdFormatDocumentDefault (.docx)
         doc.SaveAs2(pdf_path, FileFormat=17)    # wdFormatPDF
         print(f"Saved student copies: For_Students\\{safe}.docx and .pdf")
+        result = pdf_path
     except Exception as exc:
         print(
             f"WARNING: couldn't create the Word/PDF student copy of {title!r} ({exc}). "
@@ -568,6 +574,7 @@ def export_for_students(md_text: str, title: str) -> None:
             os.remove(html_path)
         except OSError:
             pass
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -679,15 +686,31 @@ def gmail_authenticate():
     return build("gmail", "v1", credentials=creds)
 
 
-def create_draft(service, to: str, subject: str, html_body: str, bcc: str | None = None) -> None:
-    """Create a Gmail draft with an HTML body."""
+def create_draft(
+    service,
+    to: str,
+    subject: str,
+    html_body: str,
+    bcc: str | None = None,
+    attachments: list[str] | None = None,
+) -> None:
+    """Create a Gmail draft with an HTML body and optional file attachments."""
+    import mimetypes
+
     message = EmailMessage()
     message["To"] = to
     if bcc:
         message["Bcc"] = bcc
     message["Subject"] = subject
-    message.set_content("This recap is best viewed in an HTML-capable email client.")
+    message.set_content("This email is best viewed in an HTML-capable email client.")
     message.add_alternative(html_body, subtype="html")
+    for path in attachments or []:
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        maintype, subtype = ctype.split("/", 1)
+        with open(path, "rb") as fh:
+            message.add_attachment(
+                fh.read(), maintype=maintype, subtype=subtype, filename=os.path.basename(path)
+            )
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
     draft = (

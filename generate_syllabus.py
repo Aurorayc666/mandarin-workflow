@@ -7,7 +7,9 @@ Gmail recap emails, NOT past syllabi or class plans, because the last class or
 two of a syllabus often isn't reached. (Spring is retrospective and reads its own
 class plans.) Uses Gemini to generate the syllabus, with an interactive review
 loop and a second revision gate after saving. A Word + PDF student copy
-(without the HSK Alignment section) is saved to For_Students/.
+(without the HSK Alignment section) is saved to For_Students/, and an
+enrollment email (syllabus_email_template.txt, filled from the course settings
+in .env) is created as a Gmail draft with that PDF attached.
 
 Run:
   python generate_syllabus.py           # interactive
@@ -19,11 +21,13 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import date, timedelta
 
 
 from utils import (
     md_to_html,
     BACK_FILES_DIR,
+    HERE,
     _generate,
     create_onenote_page,
     find_notebook,
@@ -37,6 +41,9 @@ from utils import (
     resolve_semester,
     export_for_students,
     strip_markdown_section,
+    create_draft,
+    RECAP_TO,
+    RECAP_BCC,
 )
 
 
@@ -169,6 +176,88 @@ def review_syllabus(
 
 
 # --------------------------------------------------------------------------- #
+# Enrollment email
+# --------------------------------------------------------------------------- #
+
+SYLLABUS_EMAIL_TEMPLATE = os.path.join(HERE, "syllabus_email_template.txt")
+
+# .env settings the email needs; update them (with SEMESTER) each semester.
+_EMAIL_SETTINGS = {
+    "level":        "COURSE_LEVEL",        # e.g. Beginner 4
+    "start":        "CLASS_START_DATE",    # first class, YYYY-MM-DD
+    "class_time":   "CLASS_TIME",          # e.g. 7–9 p.m. Eastern Time
+    "tuition":      "TUITION",             # e.g. $250
+    "private_rate": "PRIVATE_RATE",        # e.g. $45
+}
+
+_NUMBER_WORDS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+                 "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen",
+                 "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"]
+
+
+def _long_date(d: date) -> str:
+    return f"{d:%B} {d.day}, {d.year}"          # "November 18, 2026"
+
+
+def build_syllabus_email(semester: str) -> tuple[str, str]:
+    """Fill syllabus_email_template.txt from the semester and .env course settings.
+
+    Returns (subject, markdown_body). The weekday and last class date are
+    computed from CLASS_START_DATE and CLASS_COUNT (default 8, weekly), so they
+    can't disagree with each other. Raises ValueError naming anything missing.
+    """
+    values = {k: os.environ.get(env, "").strip() for k, env in _EMAIL_SETTINGS.items()}
+    missing = [_EMAIL_SETTINGS[k] for k, v in values.items() if not v]
+    if missing:
+        raise ValueError(f"set {', '.join(missing)} in .env")
+    if not os.path.exists(SYLLABUS_EMAIL_TEMPLATE):
+        raise ValueError(f"template file {os.path.basename(SYLLABUS_EMAIL_TEMPLATE)} is missing")
+
+    try:
+        start = date.fromisoformat(values.pop("start"))
+    except ValueError:
+        raise ValueError("CLASS_START_DATE in .env must look like 2026-11-18")
+    count = int(os.environ.get("CLASS_COUNT", "8"))
+    end = start + timedelta(weeks=count - 1)
+
+    values.update(
+        semester=semester,
+        season=semester.split()[0].lower(),       # "winter"
+        weekday=f"{start:%A}",                    # "Wednesday"
+        class_count_word=_NUMBER_WORDS[count] if count < len(_NUMBER_WORDS) else str(count),
+        start_date=_long_date(start),
+        end_date=_long_date(end),
+    )
+    with open(SYLLABUS_EMAIL_TEMPLATE, encoding="utf-8") as fh:
+        text = fh.read().format_map(values)
+
+    first, _, body = text.partition("\n")
+    if not first.lower().startswith("subject:"):
+        raise ValueError("the template's first line must be 'Subject: ...'")
+    return first.split(":", 1)[1].strip(), body.strip()
+
+
+def create_syllabus_email_draft(gmail_service, semester: str, pdf_path: str | None) -> None:
+    """Create the enrollment email as a Gmail draft (never sent automatically)."""
+    try:
+        subject, body_md = build_syllabus_email(semester)
+    except (ValueError, KeyError) as exc:
+        print(f"WARNING: skipped the enrollment email draft ({exc}).")
+        return
+    if not pdf_path:
+        print("WARNING: no PDF syllabus to attach — attach it to the draft by hand.")
+    create_draft(
+        gmail_service,
+        RECAP_TO,
+        subject,
+        md_to_html(body_md, line_breaks=True),
+        bcc=RECAP_BCC,
+        attachments=[pdf_path] if pdf_path else None,
+    )
+    print(f"Enrollment email draft ready in Gmail: {subject!r}. Review it, then send.")
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
 
@@ -244,9 +333,12 @@ def main() -> None:
 
     # Student copy (Word + PDF) of the final version, without the teacher-facing
     # HSK Alignment section.
-    export_for_students(
+    pdf_path = export_for_students(
         strip_markdown_section(syllabus_md, "HSK Alignment"), f"{semester} Syllabus"
     )
+
+    # Enrollment email to students, with the PDF syllabus attached (draft only).
+    create_syllabus_email_draft(gmail_service, semester, pdf_path)
 
     print(f"\nDone. {semester} syllabus saved locally, to OneNote, and to For_Students.")
 
