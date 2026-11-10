@@ -21,7 +21,7 @@ from datetime import datetime
 
 from utils import (
     md_to_html,
-    HERE,
+    BACK_FILES_DIR,
     RECAP_BCC,
     RECAP_TO,
     _generate,
@@ -58,7 +58,7 @@ def _set_semester(semester: str) -> None:
     # Target section in OneNote where new class plans are saved (auto-created if absent).
     LESSON_PLAN_SECTION = f"{semester} Class Plans"
     # Local syllabus file produced by generate_syllabus.py for this semester.
-    SYLLABUS_FILE = os.path.join(HERE, f"{slug}_syllabus.md")
+    SYLLABUS_FILE = os.path.join(BACK_FILES_DIR, f"{slug}_syllabus.md")
 
 
 _set_semester(SEMESTER)
@@ -358,7 +358,7 @@ def main() -> None:
     )
 
     slug = re.sub(r"[^\w\s-]", "", page_title).strip().replace(" ", "_").lower()
-    lesson_plan_file = os.path.join(HERE, f"{slug}_{date_str}.md")
+    lesson_plan_file = os.path.join(BACK_FILES_DIR, f"{slug}_{date_str}.md")
 
     with open(lesson_plan_file, "w", encoding="utf-8") as fh:
         fh.write(plan_md)

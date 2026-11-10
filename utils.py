@@ -440,6 +440,13 @@ def create_onenote_page(token: str, section_id: str, title: str, html_body: str)
 
 FOR_STUDENTS_DIR = os.path.join(HERE, "For_Students")
 
+# Local Markdown copies of everything the scripts generate (lesson plans,
+# syllabi, handouts). Scripts also read these back: the class plan script
+# loads the syllabus, and the handouts script scans past handouts so it
+# doesn't repeat material.
+BACK_FILES_DIR = os.path.join(HERE, "back_files")
+os.makedirs(BACK_FILES_DIR, exist_ok=True)
+
 _STUDENT_DOC_CSS = """
 body  { font-family: Calibri, "Microsoft YaHei", "SimSun", sans-serif; font-size: 11pt; }
 h1    { font-size: 20pt; color: #1F3864; }

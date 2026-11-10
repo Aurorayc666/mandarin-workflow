@@ -28,6 +28,15 @@ generate_handouts.py        ← run after every 2 classes, for that range's hand
 `summer_2026_syllabus.md`) that `generate_next_class_plan.py` uses as a
 scope guide. Run the syllabus script first so the file exists.
 
+**Output folders** (both git-ignored):
+
+- `back_files/` — local Markdown copies of every generated lesson plan,
+  syllabus and handout. The scripts read these back (the class plan script
+  loads the syllabus; the handouts script checks past handouts to avoid
+  repeats and to suggest the next class range), so keep them here.
+- `For_Students/` — Word + PDF copies of each syllabus and handout to send
+  to students.
+
 ---
 
 ## OneNote structure

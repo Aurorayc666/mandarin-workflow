@@ -23,7 +23,7 @@ import os
 
 from utils import (
     md_to_html,
-    HERE,
+    BACK_FILES_DIR,
     _generate,
     create_onenote_page,
     find_notebook,
@@ -182,7 +182,7 @@ def main() -> None:
     semester = resolve_semester(args.semester)
 
     slug          = semester.lower().replace(" ", "_")   # "summer_2026"
-    syllabus_file = os.path.join(HERE, f"{slug}_syllabus.md")
+    syllabus_file = os.path.join(BACK_FILES_DIR, f"{slug}_syllabus.md")
     section_name  = f"{semester} Class Plans"            # created in OneNote if needed
 
     # Read context from OneNote and Gmail recaps.

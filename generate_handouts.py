@@ -36,7 +36,7 @@ import sys
 
 from utils import (
     md_to_html,
-    HERE,
+    BACK_FILES_DIR,
     _generate,
     count_class_plan_pages,
     create_onenote_page,
@@ -73,7 +73,7 @@ def _range_label(start: int, end: int) -> str:
 
 
 def _local_path(slug: str, start: int, end: int, suffix: str) -> str:
-    return os.path.join(HERE, f"{slug}_class{_range_label(start, end)}_{suffix}.md")
+    return os.path.join(BACK_FILES_DIR, f"{slug}_class{_range_label(start, end)}_{suffix}.md")
 
 
 def _next_default_range(slug: str, max_class: int) -> tuple[int, int]:
@@ -83,7 +83,7 @@ def _next_default_range(slug: str, max_class: int) -> tuple[int, int]:
         rf"^{re.escape(slug)}_class(\d+)(?:-(\d+))?_study_guide\.md$"
     )
     highest_covered = 0
-    for name in os.listdir(HERE):
+    for name in os.listdir(BACK_FILES_DIR):
         m = range_file_re.match(name)
         if m:
             end = int(m.group(2) or m.group(1))
@@ -132,8 +132,8 @@ def _read_previous_handouts(exclude_paths: set[str]) -> str:
     (legacy single-file set plus every *_study_guide.md / *_homework.md), so
     Gemini can avoid repeating material the student has already received."""
     chunks: list[str] = []
-    for name in sorted(os.listdir(HERE)):
-        path = os.path.join(HERE, name)
+    for name in sorted(os.listdir(BACK_FILES_DIR)):
+        path = os.path.join(BACK_FILES_DIR, name)
         if path in exclude_paths:
             continue
         if name not in _LEGACY_HANDOUT_FILES and not _HANDOUT_FILE_RE.match(name):
