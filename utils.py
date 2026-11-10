@@ -435,6 +435,124 @@ def create_onenote_page(token: str, section_id: str, title: str, html_body: str)
 
 
 # --------------------------------------------------------------------------- #
+# Student copies (Word + PDF)
+# --------------------------------------------------------------------------- #
+
+FOR_STUDENTS_DIR = os.path.join(HERE, "For_Students")
+
+_STUDENT_DOC_CSS = """
+body  { font-family: Calibri, "Microsoft YaHei", "SimSun", sans-serif; font-size: 11pt; }
+h1    { font-size: 20pt; color: #1F3864; }
+h2    { font-size: 15pt; color: #2F5496; margin-top: 18pt; }
+h3    { font-size: 12.5pt; color: #2F5496; }
+table { border-collapse: collapse; margin: 6pt 0; }
+th, td { border: 1px solid #8EA9DB; padding: 3pt 7pt; vertical-align: top; }
+th    { background: #D9E2F3; }
+"""
+
+
+_BLOCK_START_RE = re.compile(r"^\s*(?:[*+-]\s|\d+[.)]\s|\|)")
+
+
+def md_to_html(md_text: str) -> str:
+    """Convert Gemini's Markdown to HTML (for OneNote and student copies).
+
+    Gemini often puts a list or table directly under a line like
+    "**New Vocabulary**" with no blank line between them, and Python-Markdown
+    then renders the whole thing as one run-on paragraph. Likewise a heading
+    right under a table gets swallowed into the table as an extra row. Insert
+    the missing blank line before any list/table that starts right after
+    ordinary text, and after a table that's followed directly by other text.
+    """
+    import markdown as md_lib
+
+    out: list[str] = []
+    prev = ""
+    for line in md_text.splitlines():
+        starts_block = (
+            _BLOCK_START_RE.match(line)
+            and prev.strip()
+            and not _BLOCK_START_RE.match(prev)
+            and not prev.startswith((" ", "\t"))
+        )
+        ends_table = (
+            prev.lstrip().startswith("|")
+            and line.strip()
+            and not line.lstrip().startswith("|")
+        )
+        if starts_block or ends_table:
+            out.append("")
+        out.append(line)
+        prev = line
+    return md_lib.markdown("\n".join(out), extensions=["tables", "fenced_code"])
+
+
+def strip_markdown_section(md_text: str, heading: str) -> str:
+    """Remove a '## <heading>' section (up to the next '## ' heading) from Markdown."""
+    pattern = re.compile(
+        rf"^##\s+{re.escape(heading)}\s*$.*?(?=^##\s|\Z)",
+        re.IGNORECASE | re.MULTILINE | re.DOTALL,
+    )
+    return pattern.sub("", md_text).lstrip()
+
+
+def export_for_students(md_text: str, title: str) -> None:
+    """Save a student copy of a generated document as For_Students/<title>.docx and .pdf.
+
+    Converts the Markdown to HTML and lets Microsoft Word (run hidden, in its own
+    instance so the teacher's open documents are untouched) save it as Word and
+    PDF, so Chinese characters, Pinyin tone marks and tables render properly.
+    Never raises: on failure it prints a warning, since the content is already
+    saved locally and in OneNote.
+    """
+    os.makedirs(FOR_STUDENTS_DIR, exist_ok=True)
+    safe = re.sub(r'[<>:"/\\|?*]', "-", title).strip()
+    docx_path = os.path.join(FOR_STUDENTS_DIR, f"{safe}.docx")
+    pdf_path  = os.path.join(FOR_STUDENTS_DIR, f"{safe}.pdf")
+    html_path = os.path.join(FOR_STUDENTS_DIR, f"~{safe}.tmp.html")
+
+    body = md_to_html(md_text)
+    with open(html_path, "w", encoding="utf-8") as fh:
+        fh.write(
+            '<!DOCTYPE html><html><head><meta charset="utf-8">'
+            f"<title>{title}</title><style>{_STUDENT_DOC_CSS}</style></head>"
+            f"<body><h1>{title}</h1>\n{body}</body></html>"
+        )
+
+    word = doc = None
+    try:
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0
+        doc = word.Documents.Open(html_path, ConfirmConversions=False, ReadOnly=True)
+        doc.ActiveWindow.View.Type = 3          # print layout, not web layout
+        doc.SaveAs2(docx_path, FileFormat=16)   # wdFormatDocumentDefault (.docx)
+        doc.SaveAs2(pdf_path, FileFormat=17)    # wdFormatPDF
+        print(f"Saved student copies: For_Students\\{safe}.docx and .pdf")
+    except Exception as exc:
+        print(
+            f"WARNING: couldn't create the Word/PDF student copy of {title!r} ({exc}). "
+            "If that file is open in Word or a PDF viewer, close it and re-run."
+        )
+    finally:
+        try:
+            if doc is not None:
+                doc.Close(SaveChanges=False)
+            if word is not None:
+                word.Quit()
+        except Exception:
+            pass
+        try:
+            os.remove(html_path)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------- #
 # Gemini
 # --------------------------------------------------------------------------- #
 

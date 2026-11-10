@@ -19,6 +19,7 @@ Each document is saved as a local .md file and as a page in the same
 "<semester> Class Plans" OneNote section as the lesson plans, titled
 "Class N-M - <Document>". (Lesson-plan lookups skip these pages by their
 "Study Guide" / "Homework" title suffix — see utils.is_handout_title.)
+A Word + PDF student copy of each also goes to For_Students/.
 
 Run after the relevant classes' plans (and recaps) exist:
   python generate_handouts.py
@@ -32,9 +33,9 @@ import os
 import re
 import sys
 
-import markdown
 
 from utils import (
+    md_to_html,
     HERE,
     _generate,
     count_class_plan_pages,
@@ -47,6 +48,7 @@ from utils import (
     read_class_recap_emails,
     add_semester_argument,
     resolve_semester,
+    export_for_students,
 )
 
 # --------------------------------------------------------------------------- #
@@ -314,8 +316,9 @@ def main() -> None:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(md)
         print(f"Saved {path}")
-        html = markdown.markdown(md, extensions=["tables", "fenced_code"])
+        html = md_to_html(md)
         create_onenote_page(token, section_id, title, html)
+        export_for_students(md, f"{semester} {title}")
 
     print(f"\nDone. 2 Class {label} handout files saved locally and 2 OneNote pages created.")
 

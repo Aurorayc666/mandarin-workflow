@@ -6,7 +6,8 @@ covered is every past semester's handout pages (study guides etc.) plus sent
 Gmail recap emails, NOT past syllabi or class plans, because the last class or
 two of a syllabus often isn't reached. (Spring is retrospective and reads its own
 class plans.) Uses Gemini to generate the syllabus, with an interactive review
-loop and a second revision gate after saving.
+loop and a second revision gate after saving. A Word + PDF student copy
+(without the HSK Alignment section) is saved to For_Students/.
 
 Run:
   python generate_syllabus.py           # interactive
@@ -19,9 +20,9 @@ from __future__ import annotations
 import argparse
 import os
 
-import markdown
 
 from utils import (
+    md_to_html,
     HERE,
     _generate,
     create_onenote_page,
@@ -34,6 +35,8 @@ from utils import (
     read_section_pages,
     add_semester_argument,
     resolve_semester,
+    export_for_students,
+    strip_markdown_section,
 )
 
 
@@ -208,7 +211,7 @@ def main() -> None:
     print(f"Saved {syllabus_file}")
 
     section_id   = find_or_create_section(token, notebook_id, section_name)
-    syllabus_html = markdown.markdown(syllabus_md, extensions=["tables", "fenced_code"])
+    syllabus_html = md_to_html(syllabus_md)
     create_onenote_page(token, section_id, f"{semester} Course Syllabus", syllabus_html)
 
     # Second gate: offer another revision pass after seeing the saved confirmation.
@@ -235,11 +238,17 @@ def main() -> None:
             with open(syllabus_file, "w", encoding="utf-8") as fh:
                 fh.write(syllabus_md)
             print(f"Saved {syllabus_file}")
-            syllabus_html = markdown.markdown(syllabus_md, extensions=["tables", "fenced_code"])
+            syllabus_html = md_to_html(syllabus_md)
             create_onenote_page(token, section_id, f"{semester} Course Syllabus", syllabus_html)
             print("Updated OneNote syllabus page.")
 
-    print(f"\nDone. {semester} syllabus saved locally and to OneNote.")
+    # Student copy (Word + PDF) of the final version, without the teacher-facing
+    # HSK Alignment section.
+    export_for_students(
+        strip_markdown_section(syllabus_md, "HSK Alignment"), f"{semester} Syllabus"
+    )
+
+    print(f"\nDone. {semester} syllabus saved locally, to OneNote, and to For_Students.")
 
 
 if __name__ == "__main__":

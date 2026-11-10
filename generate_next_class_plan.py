@@ -18,9 +18,9 @@ import os
 import re
 from datetime import datetime
 
-import markdown
 
 from utils import (
+    md_to_html,
     HERE,
     RECAP_BCC,
     RECAP_TO,
@@ -257,7 +257,7 @@ def _copied_plan_sections_html(plan_md: str) -> str:
         section_md = _extract_section(plan_md, keyword)
         if not section_md:
             continue
-        section_html = markdown.markdown(section_md, extensions=["tables", "fenced_code"])
+        section_html = md_to_html(section_md)
         chunks.append(f"<h3>{title}</h3>\n{section_html}")
     return "\n".join(chunks)
 
@@ -364,7 +364,7 @@ def main() -> None:
         fh.write(plan_md)
     print(f"Saved lesson plan to {lesson_plan_file}")
 
-    plan_html = markdown.markdown(plan_md, extensions=["tables", "fenced_code"])
+    plan_html = md_to_html(plan_md)
     create_onenote_page(token, section_id, page_title, plan_html)
 
     # 5. Generate recap email and create Gmail draft.

@@ -25,3 +25,6 @@ class_*.md
 # Python caches
 __pycache__/
 *.pyc
+
+# Student copies (Word/PDF) generated from the above
+For_Students/
