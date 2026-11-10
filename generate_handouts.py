@@ -240,34 +240,116 @@ def generate_study_guide(context_text: str, previous_handouts: str) -> str:
     )
 
 
-def generate_homework(context_text: str, previous_handouts: str) -> str:
-    """Generate a four-part homework packet covering only these classes."""
+_ANSWER_KEY_LABEL_RE = re.compile(r"^\s*(?:#{2,6}\s*|\*\*).*(?:answer key|答案)", re.IGNORECASE)
+_PART_HEADING_RE = re.compile(r"^(#{2,6})\s+(.*\S)\s*$")
+
+
+def move_answer_keys_to_end(md: str) -> str:
+    """Pull each part's answer key out of the packet and collect them in one
+    "Answer Key" section at the end, grouped by part, so students can do the
+    homework without the answers sitting right under the questions.
+
+    A key starts at a bold/heading line mentioning "Answer Key" or 答案 and runs
+    until the next '---' rule or heading. A packet that already ends with a
+    consolidated "### Answer Key" section is returned unchanged.
+    """
+    if re.search(r"^#{2,6}\s*Answer Key\s*$", md, re.IGNORECASE | re.MULTILINE):
+        return md
+    body: list[str] = []
+    keys: list[tuple[str, list[str]]] = []   # (part heading, key lines)
+    current_part = ""
+    collecting: list[str] | None = None
+
+    for line in md.splitlines():
+        heading = _PART_HEADING_RE.match(line)
+        is_key_label = bool(_ANSWER_KEY_LABEL_RE.match(line))
+        if collecting is not None:
+            if line.strip() == "---" or (heading and not is_key_label):
+                collecting = None          # key ended; fall through to keep this line
+            else:
+                collecting.append(line)
+                continue
+        if is_key_label:
+            collecting = []
+            keys.append((current_part, collecting))
+            # drop trailing blank lines left above the removed key
+            while body and not body[-1].strip():
+                body.pop()
+            body.append("")
+            continue
+        if heading:
+            current_part = heading.group(2)
+        body.append(line)
+
+    if not keys:
+        return md
+
+    out = "\n".join(body).rstrip() + "\n\n---\n\n### Answer Key\n"
+    for part, lines in keys:
+        text = "\n".join(lines).strip()
+        if text:
+            out += f"\n**{part}**\n\n{text}\n" if part else f"\n{text}\n"
+    return out
+
+
+def generate_homework(
+    context_text: str, previous_handouts: str, start: int = 1, end: int = 1
+) -> str:
+    """Generate a four-part homework packet that covers EVERY class in the range.
+
+    Without an explicit per-class requirement Gemini filled a fixed 5–8 item
+    quota from the most recent class only, so question counts scale with the
+    number of classes and each item is tagged with the class it practises.
+    """
+    n = end - start + 1
+    classes = ", ".join(f"Class {i}" for i in range(start, end + 1))
+    chars = f"{max(10, 3 * n)}–{max(15, 4 * n)}"
+    blanks = f"{max(5, 2 * n)}–{max(8, 3 * n)}"
+    translations = max(5, 2 * n)
     prompt = (
         "You are an experienced Mandarin Chinese teacher. Below are the lesson "
-        "plan(s) (and recap email(s), if available) for one or more classes. Create "
-        "a four-part homework packet using ONLY vocabulary and grammar introduced "
-        "in these classes.\n\n"
+        f"plans (and recap emails, if available) for {classes}. Create a four-part "
+        "homework packet using ONLY vocabulary and grammar introduced in these "
+        "classes.\n\n"
+        f"COVERAGE IS REQUIRED: the packet must practise material from every one of "
+        f"{classes} in balanced proportion — do not concentrate on the most recent "
+        "class. Before writing, list for yourself each class's key grammar points "
+        "and vocabulary, then make sure every class's grammar points appear in Part 2 "
+        "and Part 3. Tag every item in Parts 1–3 with the class it comes from, e.g. "
+        "\"(Class 2)\", and order items by class number.\n\n"
         "Whenever you write a Chinese sentence anywhere in this packet, put its Pinyin "
-        "(with tone marks) in parentheses immediately after it.\n\n"
+        "(with tone marks) in parentheses immediately after it. In fill-in-the-blank "
+        "sentences, leave the same blank (_______) in the Pinyin too, so the Pinyin "
+        "does not give away the answer.\n\n"
         "## Part 1: Character Writing List\n"
-        "List 10–15 Hanzi characters, each with Pinyin and English meaning. "
-        "Choose characters that reinforce key vocabulary from these classes.\n\n"
+        f"List {chars} Hanzi characters, each with Pinyin and English meaning, drawn "
+        "from every class's key vocabulary.\n\n"
         "## Part 2: Fill in the Blank\n"
-        "Write 5–8 sentences in Chinese with one word or particle blanked out. "
-        "Each blank should target a key grammar pattern. Include an answer key at the end.\n\n"
+        f"Write {blanks} sentences in Chinese, each with exactly ONE word or particle "
+        "blanked out (at least two per class). Each blank should target a key grammar "
+        "pattern. Give the answers right after this part under a line reading "
+        "exactly **Answer Key:**.\n\n"
         "## Part 3: Translation (English → Chinese)\n"
-        "Provide 5 English sentences for the student to translate into Chinese. "
-        "Choose sentences that practice key grammar structures. Include an answer key.\n\n"
+        f"Provide {translations} English sentences for the student to translate into "
+        "Chinese (at least two per class), practising key grammar structures. The "
+        "questions must be in English ONLY — no Chinese characters or Pinyin under "
+        "or after them, since that would give away the answer. Put the Chinese "
+        "(with Pinyin) only in the answers, right after this part under a line "
+        "reading exactly **Answer Key:**.\n\n"
+        "Double-check that every Chinese sentence, including each completed "
+        "fill-in-the-blank sentence, is natural and grammatically correct.\n\n"
         "## Part 4: Short Composition\n"
         "Give a creative writing prompt (2–3 sentences describing a scenario). "
         "Ask the student to write 3–5 sentences in Chinese using at least 5 vocabulary "
-        "items from these classes.\n\n"
+        "items and grammar from several different classes in this range.\n\n"
         "Return only the Markdown, no surrounding text or code fences."
         f"{_dedup_block(previous_handouts)}\n\n"
         "=== THESE CLASSES' LESSON PLANS & RECAP EMAILS ===\n"
         f"{context_text}"
     )
-    return _generate(prompt)
+    # Code (not Gemini) moves every part's answers into one section at the end,
+    # so the layout is the same in the .md, OneNote, Word and PDF.
+    return move_answer_keys_to_end(_generate(prompt))
 
 
 # --------------------------------------------------------------------------- #
@@ -307,7 +389,12 @@ def main() -> None:
 
     artifacts = [
         ("study guide", study_guide_path, generate_study_guide, f"Class {label} - Study Guide"),
-        ("homework packet", homework_path, generate_homework, f"Class {label} - Homework"),
+        (
+            "homework packet",
+            homework_path,
+            lambda ctx, prev: generate_homework(ctx, prev, start, end),
+            f"Class {label} - Homework",
+        ),
     ]
 
     for artifact_label, path, fn, title in artifacts:

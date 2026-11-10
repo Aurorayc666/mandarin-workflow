@@ -482,6 +482,9 @@ def md_to_html(md_text: str) -> str:
         )
         if starts_block or ends_table:
             out.append("")
+        # Fill-in-the-blank lines ("_______") would otherwise be eaten as
+        # italics markers and shrink to a single "_"; escape them.
+        line = re.sub(r"_{3,}", lambda m: "\\_" * len(m.group()), line)
         out.append(line)
         prev = line
     return md_lib.markdown("\n".join(out), extensions=["tables", "fenced_code"])
@@ -512,6 +515,14 @@ def export_for_students(md_text: str, title: str) -> None:
     html_path = os.path.join(FOR_STUDENTS_DIR, f"~{safe}.tmp.html")
 
     body = md_to_html(md_text)
+    # Start the answer key on a new page so the questions can be printed or
+    # sent without it (the divider line before it isn't needed then).
+    body = re.sub(
+        r"(?:<hr\s*/?>\s*)?<h([1-6])>(Answer Key)</h\1>",
+        r'<h\1 style="page-break-before: always">\2</h\1>',
+        body,
+        flags=re.IGNORECASE,
+    )
     with open(html_path, "w", encoding="utf-8") as fh:
         fh.write(
             '<!DOCTYPE html><html><head><meta charset="utf-8">'
