@@ -38,6 +38,27 @@ RECAP_TO       = os.environ.get("RECAP_TO", "aurorahu.mandarin@gmail.com")
 RECAP_BCC      = os.environ.get("RECAP_BCC")
 
 NOTEBOOK_NAME = os.environ.get("NOTEBOOK_NAME", "Mandarin_Class")
+
+
+def add_semester_argument(parser) -> None:
+    """Add the shared --semester option (a one-off override of SEMESTER in .env)."""
+    parser.add_argument(
+        "--semester",
+        help='One-off override, e.g. --semester "Spring 2027". '
+        "Normally the semester comes from SEMESTER in .env.",
+    )
+
+
+def resolve_semester(cli_value: str | None) -> str:
+    """Return the semester to work on: --semester if given, else SEMESTER from .env."""
+    semester = (cli_value or os.environ.get("SEMESTER", "")).strip()
+    if not semester:
+        raise SystemExit(
+            'ERROR: no semester set. Add SEMESTER=Fall 2026 (for example) to .env, '
+            'or pass --semester "Fall 2026".'
+        )
+    print(f"Semester: {semester}")
+    return semester
 MODEL         = "gemini-2.5-flash"
 
 AUTHORITY    = "https://login.microsoftonline.com/common"

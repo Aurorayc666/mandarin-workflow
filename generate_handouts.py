@@ -1,7 +1,7 @@
 """generate_handouts.py — student handout materials for a range of classes.
 
-Prompts for the semester, then which classes to generate handouts for (e.g.
-"1-2"), defaulting to the next un-handed-out pair based on what's already been
+Uses the semester from SEMESTER in .env (or --semester for a one-off run),
+then prompts for which classes to generate handouts for (e.g. "1-2"), defaulting to the next un-handed-out pair based on what's already been
 generated locally for that semester. Reads the OneNote page(s) for those
 classes (the "Class N ..." pages in the "<semester> Class Plans" section) plus
 their recap emails, then uses Gemini to produce two student-facing documents
@@ -21,10 +21,12 @@ Each document is saved as a local .md file and as a page in a
 
 Run after the relevant classes' plans (and recaps) exist:
   python generate_handouts.py
+  python generate_handouts.py --semester "Spring 2027"   # one-off semester override
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
@@ -43,6 +45,8 @@ from utils import (
     graph_authenticate,
     read_class_plan_page,
     read_class_recap_emails,
+    add_semester_argument,
+    resolve_semester,
 )
 
 # --------------------------------------------------------------------------- #
@@ -269,14 +273,12 @@ def generate_homework(context_text: str, previous_handouts: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def main() -> None:
-    try:
-        semester = input(
-            "Generate handouts for which semester? (e.g. Fall 2026): "
-        ).strip()
-    except EOFError:
-        semester = ""
-    if not semester:
-        semester = os.environ.get("SEMESTER", "Fall 2026")
+    parser = argparse.ArgumentParser(
+        description="Generate a study guide and homework packet for a range of classes."
+    )
+    add_semester_argument(parser)
+    args = parser.parse_args()
+    semester = resolve_semester(args.semester)
 
     slug             = semester.lower().replace(" ", "_")
     section_name     = f"{semester} Class Plans"

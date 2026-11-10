@@ -1,6 +1,6 @@
 """generate_syllabus.py — generate a Mandarin course syllabus for a given semester.
 
-Prompts for the target semester name (e.g. "Summer 2026"), then reads all OneNote
+Uses the semester from SEMESTER in .env (or --semester for a one-off run), then reads all OneNote
 sections whose names contain 'class plans' and all sent Gmail recap emails as
 context. Uses Gemini to generate the syllabus, with an interactive review loop
 and a second revision gate after saving.
@@ -8,6 +8,7 @@ and a second revision gate after saving.
 Run:
   python generate_syllabus.py           # interactive
   python generate_syllabus.py --auto    # accept first draft automatically
+  python generate_syllabus.py --semester "Spring 2027"   # one-off semester override
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ from utils import (
     read_all_class_plan_sections,
     read_recap_emails,
     read_section_pages,
+    add_semester_argument,
+    resolve_semester,
 )
 
 
@@ -165,16 +168,9 @@ def main() -> None:
     parser.add_argument(
         "--auto", action="store_true", help="Accept the first draft without review."
     )
+    add_semester_argument(parser)
     args = parser.parse_args()
-
-    try:
-        semester = input(
-            "Generate syllabus for which semester? (e.g. Summer 2026): "
-        ).strip()
-    except EOFError:
-        semester = ""
-    if not semester:
-        semester = "Summer 2026"
+    semester = resolve_semester(args.semester)
 
     slug          = semester.lower().replace(" ", "_")   # "summer_2026"
     syllabus_file = os.path.join(HERE, f"{slug}_syllabus.md")

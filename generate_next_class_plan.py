@@ -8,6 +8,7 @@ saves it to OneNote and creates a recap email draft in Gmail.
 Run:
   python generate_next_class_plan.py           # interactive review
   python generate_next_class_plan.py --auto    # accept first draft automatically
+  python generate_next_class_plan.py --semester "Spring 2027"   # one-off semester override
 """
 
 from __future__ import annotations
@@ -33,25 +34,34 @@ from utils import (
     graph_authenticate,
     read_all_class_plan_sections,
     read_sent_gmail,
+    add_semester_argument,
+    resolve_semester,
 )
 
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
 
-# The semester this script generates class plans for. Change this one value (or
-# set the SEMESTER env var) when moving to a new semester — the target section and
-# the syllabus file are both derived from it.
-SEMESTER = os.environ.get("SEMESTER", "Fall 2026")
-_SEMESTER_SLUG = SEMESTER.lower().replace(" ", "_")
+# The semester this script generates class plans for. Set SEMESTER in .env once
+# when a new semester starts (or pass --semester for a one-off run). The target
+# section and syllabus file are derived from it in _set_semester().
+SEMESTER = os.environ.get("SEMESTER", "")
+LESSON_PLAN_SECTION = ""
+SYLLABUS_FILE = ""
 
-# Target section in OneNote where new class plans are saved (auto-created if absent).
-LESSON_PLAN_SECTION = os.environ.get(
-    "LESSON_PLAN_SECTION", f"{SEMESTER} Class Plans"
-)
 
-# Local syllabus file produced by generate_syllabus.py for this semester.
-SYLLABUS_FILE = os.path.join(HERE, f"{_SEMESTER_SLUG}_syllabus.md")
+def _set_semester(semester: str) -> None:
+    """Point the OneNote section and local syllabus file at the given semester."""
+    global SEMESTER, LESSON_PLAN_SECTION, SYLLABUS_FILE
+    SEMESTER = semester
+    slug = semester.lower().replace(" ", "_")
+    # Target section in OneNote where new class plans are saved (auto-created if absent).
+    LESSON_PLAN_SECTION = f"{semester} Class Plans"
+    # Local syllabus file produced by generate_syllabus.py for this semester.
+    SYLLABUS_FILE = os.path.join(HERE, f"{slug}_syllabus.md")
+
+
+_set_semester(SEMESTER)
 
 
 # --------------------------------------------------------------------------- #
@@ -300,7 +310,9 @@ def main() -> None:
         action="store_true",
         help="Skip the interactive review and accept the first lesson plan.",
     )
+    add_semester_argument(parser)
     args = parser.parse_args()
+    _set_semester(resolve_semester(args.semester))
 
     # 1. Authenticate and locate (creating if needed) the target section.
     token = graph_authenticate()
